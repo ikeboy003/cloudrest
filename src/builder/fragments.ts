@@ -5,13 +5,23 @@
 // it here. See CONSTITUTION § Writing style.
 
 export { renderField } from './fragments/field';
-export { renderFilter, renderOpExpr } from './fragments/filter';
+export {
+  renderFilter,
+  renderOpExpr,
+  renderOpExprOnExpr,
+} from './fragments/filter';
 export { renderLogicTree } from './fragments/logic';
 export {
   renderLimitOffset,
   renderOrderClause,
   renderOrderTerm,
 } from './fragments/order';
-export { renderGroupBy, renderSelectProjection } from './fragments/select';
+export {
+  renderGroupBy,
+  renderGroupByFromProjection,
+  renderSelectProjection,
+  renderSelectProjectionAndGrouping,
+  type RenderedProjection,
+} from './fragments/select';
 export { renderHaving } from './fragments/having';
 export { isValidCast, buildPgArrayLiteral } from './fragments/operators';

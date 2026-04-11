@@ -196,11 +196,26 @@ describe('renderOrderClause', () => {
     expect(mustOk(renderOrderClause(target, [], b))).toBe('');
   });
 
-  it('renders a relation-scoped order', () => {
+  it('renders a relation-scoped order against the embed lateral alias', () => {
+    // BUG FIX (#CC2): root-level `order=author(name).asc` used to
+    // render as `"public"."author"."name" ASC`, which is not a
+    // valid FROM-clause reference when `author` is joined as a
+    // LATERAL subquery. The renderer now takes an embed-alias map
+    // from `renderEmbeds` and emits `"pgrst_1"."name"` instead.
     const b = new SqlBuilder();
     const order = mustOk(parseOrder('author(name).asc'));
-    const sql = mustOk(renderOrderTerm(target, order[0]!, b));
-    expect(sql).toBe('"public"."author"."name" ASC');
+    const embedAliases = new Map([['author', 'pgrst_1']]);
+    const sql = mustOk(renderOrderTerm(target, order[0]!, b, embedAliases));
+    expect(sql).toBe('"pgrst_1"."name" ASC');
+  });
+
+  it('errors when a relation-scoped order has no embed alias map', () => {
+    // Without the alias map the old code produced invalid SQL;
+    // the new code refuses and returns PGRST100 instead.
+    const b = new SqlBuilder();
+    const order = mustOk(parseOrder('author(name).asc'));
+    const r = renderOrderTerm(target, order[0]!, b);
+    expect(r.ok).toBe(false);
   });
 });
 

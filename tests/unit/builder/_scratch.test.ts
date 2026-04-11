@@ -446,12 +446,14 @@ describe('scratch builder DD: renderFilter adversarial values', () => {
     expect(params).toEqual(['%a\\\\b%']);
   });
 
-  it('DD8 ilike value with literal % (already a SQL wildcard) is NOT escaped', () => {
-    // Pinning current behavior: the renderer intentionally does not
-    // escape `%` because it assumes the user wants LIKE semantics.
-    // Whether this is correct is a policy call. Log it.
+  it('DD8 ilike value with literal % is escaped (user-facing wildcard is `*`)', () => {
+    // BUG FIX (#BB16): the old behavior silently passed `%` through
+    // as a raw SQL wildcard, so `ilike.%` matched every row — a
+    // dangerous default for user-supplied filter values. The
+    // renderer now escapes `%` along with `_` and `\`, and only
+    // rewrites the user-facing wildcard `*` → `%`.
     const { params } = parseAndRenderFilter('name', 'ilike.%admin%');
-    expect(params).toEqual(['%admin%']);
+    expect(params).toEqual(['\\%admin\\%']);
   });
 
   it('DD9 fts language is bound as a param, not inlined', () => {
@@ -1204,10 +1206,18 @@ describe('scratch builder KK: cross-feature param interleaving', () => {
         '(price.gt.10,or(stock.lt.5,discount.gt.50))',
       ),
     );
+    // BUG FIX (#BB15): `DISTINCT ON (category)` requires the first
+    // ORDER BY expression to match `category`. Without an explicit
+    // order, the builder now refuses the combination rather than
+    // emitting SQL that Postgres would reject at runtime. Pass an
+    // explicit `order=category.asc` so the vector distance appends
+    // as a tie-breaker.
+    const order = expectOk(parseOrder('category.asc'));
     const built = expectOk(
       buildReadQuery(
         basePlan({
           logic: [logic],
+          order,
           distinct: { columns: ['category'] },
           vector: {
             queryVector: [1, 2, 3],

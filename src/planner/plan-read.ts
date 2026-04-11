@@ -188,11 +188,12 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
 
   return ok({
     target: input.target,
-    // Keep `select` as the parser emitted it when there are no embeds;
-    // otherwise the builder consumes `embeds` for non-field items and
-    // `select` for field items. Feeding the field-only list here avoids
-    // double-processing in the builder.
-    select: embeds.length === 0 ? input.parsed.select : rootFieldSelect,
+    // `rootFieldSelect` is the parser's select with embed items
+    // stripped out — they live on `embeds` instead. When there are no
+    // embeds, `rootFieldSelect === input.parsed.select` by
+    // construction. Feeding the field-only list avoids double-
+    // processing in the builder.
+    select: rootFieldSelect,
     filters: input.parsed.filtersRoot,
     logic: rootLogic,
     order: rootOrder,
@@ -255,10 +256,11 @@ function validateSelectFieldItem(
   item: Extract<SelectItem, { type: 'field' }>,
 ): Result<null, CloudRestError> {
   const name = item.field.name;
+  // Bare `*` and `count(*)` (which the parser emits as an aggregate
+  // field whose field.name is '*') both pass. Any other aggregate
+  // must reference a real column — the parser already rejects
+  // `sum(*)` / `avg(*)` etc. at parse time.
   if (name === '*') return ok(null);
-  // `count(*)` is expressed as an aggregate field with field.name='*'.
-  // Any other aggregate must reference a real column.
-  if (item.aggregateFunction !== undefined && name === '*') return ok(null);
   if (!findColumn(table, name)) {
     return err(
       schemaErrors.columnNotFound(

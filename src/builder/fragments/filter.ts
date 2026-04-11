@@ -1,8 +1,7 @@
 // Filter / OpExpr rendering.
 //
 // Turns a `Filter` (field + OpExpr) into a SQL boolean expression.
-// Every value flows through SqlBuilder.addParam; geo operations are
-// stubbed until stage 6.
+// Every value flows through SqlBuilder.addParam.
 
 import { parseErrors, type CloudRestError } from '../../core/errors';
 import { err, ok, type Result } from '../../core/result';
@@ -32,9 +31,40 @@ export function renderOpExpr(
   opExpr: OpExpr,
   builder: SqlBuilder,
 ): Result<string, CloudRestError> {
+  // BUG FIX (#BB4/#BB5): a Field with name `*` should never reach this
+  // code path. `renderField` happily emits `"schema"."table".*`, which
+  // produces invalid SQL in a filter context (`table.* = $1`) and in a
+  // JSON-path context (`table.*->$1`). Reject the shape here so the
+  // builder fails loudly instead of emitting broken SQL.
+  if (field.name === '*') {
+    return err(
+      parseErrors.queryParam(
+        'filter',
+        'wildcard "*" is not a column reference; cannot be filtered on',
+      ),
+    );
+  }
   const colResult = renderField(target, field, builder);
   if (!colResult.ok) return colResult;
-  const col = colResult.value;
+  return renderOpExprOnExpr(colResult.value, opExpr, builder);
+}
+
+/**
+ * Render an OpExpr against a pre-rendered column/aggregate expression.
+ *
+ * Shared by `renderOpExpr` (plain filters) and `renderHaving` so that
+ * HAVING clauses do not re-implement the op-type switch and therefore
+ * cannot silently drop op types they did not explicitly handle.
+ *
+ * BUG FIX (#BB1): the old HAVING renderer had its own opaque switch
+ * with a `default: return ok('')` fallthrough, which dropped
+ * isDistinctFrom / fts / geo ops entirely and broadened the query.
+ */
+export function renderOpExprOnExpr(
+  col: string,
+  opExpr: OpExpr,
+  builder: SqlBuilder,
+): Result<string, CloudRestError> {
   const not = opExpr.negated ? 'NOT ' : '';
   const op = opExpr.operation;
 
@@ -47,11 +77,17 @@ export function renderOpExpr(
     case 'opQuant': {
       const sqlOp = QUANT_OPS[op.operator];
       let boundValue = op.value;
-      // like/ilike: rewrite `*` → `%` and escape `_` and `\`. The
-      // transformed value still passes through addParam — not inlining.
+      // like/ilike: rewrite `*` → `%` (the user-facing wildcard) and
+      // escape every SQL LIKE metacharacter so that untransformed
+      // user input cannot become a wildcard by accident.
+      //
+      // BUG FIX (#BB16): the old escape missed `%`, so `ilike.%`
+      // matched every row. Escape `%` first, then the other
+      // metacharacters, then rewrite `*` → `%`.
       if (op.operator === 'like' || op.operator === 'ilike') {
         boundValue = op.value
           .replace(/\\/g, '\\\\')
+          .replace(/%/g, '\\%')
           .replace(/_/g, '\\_')
           .replace(/\*/g, '%');
       }
@@ -85,9 +121,17 @@ export function renderOpExpr(
     }
 
     case 'geo':
+      // BUG FIX (#BB17): geo support is explicitly out of scope for
+      // this builder pass. The parser accepts `geo.within(...)`,
+      // `geo.dwithin(...)`, etc., but rendering them correctly needs
+      // PostGIS function emission (`ST_DWithin`, `ST_GeomFromGeoJSON`,
+      // `ST_GeomFromText`) plus its own test harness. Keeping the
+      // error EXPLICIT ensures a filter containing geo ops never
+      // silently drops — the request fails with PGRST127 instead of
+      // returning a broader, unintended result set.
       return err(
         parseErrors.notImplemented(
-          'geo operations are not yet supported in the rewrite',
+          'geo operations are not yet implemented in the rewrite builder; use ST_* directly via RPC for now',
         ),
       );
   }

@@ -16,15 +16,28 @@ import type { SqlBuilder } from '../sql';
 
 /**
  * Render a `Field` as a SQL expression. Returns the qualified column
- * reference (with `.* ` for wildcard) plus any JSON-path traversal.
+ * reference (with `.*` for wildcard) plus any JSON-path traversal.
  *
- * Errors only on malformed JSON array indices.
+ * Errors only on malformed JSON array indices and on wildcard
+ * combined with a JSON path.
  */
 export function renderField(
   target: QualifiedIdentifier,
   field: Field,
   builder: SqlBuilder,
 ): Result<string, CloudRestError> {
+  // BUG FIX (#BB4): a wildcard Field combined with a JSON path would
+  // render as `"schema"."table".*->$1`, which is not valid SQL. The
+  // parser now rejects `*->key`, but keep a defensive guard here so
+  // a malformed AST from a non-parser source cannot reach the driver.
+  if (field.name === '*' && field.jsonPath.length > 0) {
+    return err(
+      parseErrors.queryParam(
+        'field',
+        'wildcard "*" cannot have a JSON path',
+      ),
+    );
+  }
   const base =
     field.name === '*'
       ? qualifiedIdentifierToSql(target) + '.*'

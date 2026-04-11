@@ -15,42 +15,131 @@ import { isValidCast } from './operators';
 type FieldItem = Extract<SelectItem, { type: 'field' }>;
 
 /**
- * Render the list of projected columns. Empty select or
- * embed-only select falls back to `"schema"."table".*`.
+ * Summary of a rendered select projection. `projectionSql` is the
+ * comma-joined column list; `groupByFieldSqls` is the list of raw
+ * field expressions (no cast / alias wrapping) corresponding to the
+ * non-aggregate, non-wildcard items in source order. GROUP BY reuses
+ * those expressions directly so it never rebinds JSON-path keys as
+ * fresh parameters.
  *
- * SECURITY: cast types go through `isValidCast`; unknown casts return
- * PGRST100 instead of reaching SQL.
+ * BUG FIX (#BB6): the old `renderGroupBy` called `renderField` a
+ * second time, which allocated a new `$N` for every JSON-path key in
+ * the grouping set. Postgres treats `$1` and `$2` as distinct
+ * expressions even when both bind the same string, so the GROUP BY
+ * entry did not match the projection — the query could fail with
+ * "column must appear in the GROUP BY clause" despite looking
+ * equivalent on the page.
+ *
+ * BUG FIX (#BB7): the old projection emitted `table.*` for wildcard
+ * items in an aggregate select (`select=*,count()`), producing
+ * `SELECT "t".*, COUNT(*) FROM t` with no GROUP BY — invalid SQL.
+ * The rewrite detects the mixed wildcard + aggregate shape and
+ * surfaces a PGRST100 instead.
+ */
+export interface RenderedProjection {
+  readonly projectionSql: string;
+  readonly groupByFieldSqls: readonly string[];
+  readonly hasAggregates: boolean;
+}
+
+/**
+ * Render the list of projected columns as a SQL string. Empty
+ * select or embed-only select falls back to `"schema"."table".*`.
+ *
+ * This is the legacy shape used by fragment tests. `buildReadQuery`
+ * uses `renderSelectProjectionAndGrouping` instead so GROUP BY can
+ * reuse the same rendered field expressions without re-binding
+ * JSON-path keys as fresh parameters (bug #BB6).
  */
 export function renderSelectProjection(
   target: QualifiedIdentifier,
   select: readonly SelectItem[],
   builder: SqlBuilder,
 ): Result<string, CloudRestError> {
-  if (select.length === 0) return ok(qualifiedIdentifierToSql(target) + '.*');
+  const res = renderSelectProjectionAndGrouping(target, select, builder);
+  if (!res.ok) return res;
+  return ok(res.value.projectionSql);
+}
+
+/**
+ * Render the projected columns AND track which field expressions
+ * should reappear in GROUP BY. Used by the read builder; returns
+ * both the projection SQL and the pre-rendered field expressions
+ * for non-aggregate, non-wildcard items.
+ *
+ * SECURITY: cast types go through `isValidCast`; unknown casts return
+ * PGRST100 instead of reaching SQL.
+ */
+export function renderSelectProjectionAndGrouping(
+  target: QualifiedIdentifier,
+  select: readonly SelectItem[],
+  builder: SqlBuilder,
+): Result<RenderedProjection, CloudRestError> {
+  if (select.length === 0) {
+    return ok({
+      projectionSql: qualifiedIdentifierToSql(target) + '.*',
+      groupByFieldSqls: [],
+      hasAggregates: false,
+    });
+  }
 
   const fieldItems = select.filter(
     (s): s is FieldItem => s.type === 'field',
   );
-  if (fieldItems.length === 0) return ok(qualifiedIdentifierToSql(target) + '.*');
+  if (fieldItems.length === 0) {
+    return ok({
+      projectionSql: qualifiedIdentifierToSql(target) + '.*',
+      groupByFieldSqls: [],
+      hasAggregates: false,
+    });
+  }
+
+  const hasAggregates = fieldItems.some((s) => s.aggregateFunction);
+  const hasWildcard = fieldItems.some(
+    (s) => !s.aggregateFunction && s.field.name === '*',
+  );
+  // BUG FIX (#BB7): `select=*,count()` would render `table.*, COUNT(*)`
+  // with no way to emit a correct GROUP BY (every non-aggregate
+  // column on the table would need to appear, and the parser has no
+  // schema access). Reject the combination up front.
+  if (hasAggregates && hasWildcard) {
+    return err(
+      parseErrors.queryParam(
+        'select',
+        'wildcard "*" cannot be mixed with aggregate functions in the same select',
+      ),
+    );
+  }
 
   const rendered: string[] = [];
+  const groupByFieldSqls: string[] = [];
   for (const item of fieldItems) {
-    const renderedCol = renderFieldItem(target, item, builder);
+    const fieldSqlResult = renderField(target, item.field, builder);
+    if (!fieldSqlResult.ok) return fieldSqlResult;
+    const fieldSql = fieldSqlResult.value;
+
+    const renderedCol = renderFieldItemFromFieldSql(item, fieldSql);
     if (!renderedCol.ok) return renderedCol;
     rendered.push(renderedCol.value);
+
+    // Track the raw (no-cast, no-alias) field expression for GROUP
+    // BY. Aggregates and wildcards are skipped — the former are not
+    // grouped, the latter were already rejected above.
+    if (!item.aggregateFunction && item.field.name !== '*') {
+      groupByFieldSqls.push(fieldSql);
+    }
   }
-  return ok(rendered.join(', '));
+  return ok({
+    projectionSql: rendered.join(', '),
+    groupByFieldSqls,
+    hasAggregates,
+  });
 }
 
-function renderFieldItem(
-  target: QualifiedIdentifier,
+function renderFieldItemFromFieldSql(
   item: FieldItem,
-  builder: SqlBuilder,
+  fieldSql: string,
 ): Result<string, CloudRestError> {
-  const fieldSqlResult = renderField(target, item.field, builder);
-  if (!fieldSqlResult.ok) return fieldSqlResult;
-  const fieldSql = fieldSqlResult.value;
-
   if (item.aggregateFunction) {
     let col: string;
     if (item.aggregateFunction === 'count') {
@@ -87,9 +176,13 @@ function renderFieldItem(
 }
 
 /**
- * Render `GROUP BY` for aggregate queries. When no aggregates are
- * present, returns empty (no GROUP BY). Non-aggregate columns in a
- * mixed select become the grouping set.
+ * Render `GROUP BY` from a SelectItem list. Used by fragment tests.
+ *
+ * `buildReadQuery` uses `renderGroupByFromProjection` instead so the
+ * GROUP BY expressions are byte-identical to the projection ones
+ * (bug #BB6 — re-rendering would rebind JSON-path keys as fresh
+ * parameters and the query could fail with "column must appear in
+ * the GROUP BY clause").
  */
 export function renderGroupBy(
   target: QualifiedIdentifier,
@@ -110,4 +203,16 @@ export function renderGroupBy(
     groupCols.push(rendered.value);
   }
   return ok(groupCols.length > 0 ? `GROUP BY ${groupCols.join(', ')}` : '');
+}
+
+/**
+ * Render `GROUP BY` from the pre-rendered field expressions captured
+ * during the projection pass. Used by `buildReadQuery`.
+ */
+export function renderGroupByFromProjection(
+  projection: RenderedProjection,
+): string {
+  if (!projection.hasAggregates) return '';
+  if (projection.groupByFieldSqls.length === 0) return '';
+  return `GROUP BY ${projection.groupByFieldSqls.join(', ')}`;
 }
