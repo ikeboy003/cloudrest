@@ -1,0 +1,10 @@
+# RUNTIME: Cloudflare Worker entry configuration.
+#
+# This file is intentionally minimal during the rewrite. Bindings
+# (Hyperdrive, KV, Durable Objects) are added in the stage that first
+# consumes them, not speculatively. See ARCHITECTURE.md for stage order.
+
+name = "cloudrest"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]

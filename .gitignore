@@ -1,0 +1,14 @@
+node_modules
+dist
+.wrangler
+.dev.vars
+coverage
+*.log
+.DS_Store
+
+# Working notes — not part of the public repo
+STEERINGS.md
+READABILITY_REVIEW.md
+CRITIQUE.md
+CONSTITUTION.md
+bugs.md

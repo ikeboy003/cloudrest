@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "editorconfig.editorconfig",
+    "vitest.explorer",
+    "cloudflare.vscode-cloudflare-workers",
+    "streetsidesoftware.code-spell-checker",
+    "tamasfe.even-better-toml",
+    "davidanson.vscode-markdownlint"
+  ]
+}

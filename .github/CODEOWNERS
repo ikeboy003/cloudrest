@@ -1,0 +1,19 @@
+# CODEOWNERS routes review requests automatically.
+# https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default — any file not explicitly matched below
+*                       @ikeboy003
+
+# Architecture + governance — require explicit maintainer sign-off
+/ARCHITECTURE.md        @ikeboy003
+/CHANGELOG.md           @ikeboy003
+/LICENSE                @ikeboy003
+/SECURITY.md            @ikeboy003
+
+# CI + supply chain
+/.github/workflows/     @ikeboy003
+/.github/dependabot.yml @ikeboy003
+
+# Documentation
+/docs/                  @ikeboy003
+/README.md              @ikeboy003
