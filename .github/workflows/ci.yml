@@ -21,7 +21,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['18', '20', '22']
+        # RUNTIME: Node 18 is excluded — vitest 4.x requires Node
+        # 20+ (uses `styleText` from `node:util`), and the Workers
+        # runtime itself targets Node 20+. Node 18 reached EOL in
+        # April 2025.
+        node: ['20', '22']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,7 +41,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['18', '20', '22']
+        # RUNTIME: Node 18 is excluded — vitest 4.x requires Node
+        # 20+ (uses `styleText` from `node:util`), and the Workers
+        # runtime itself targets Node 20+. Node 18 reached EOL in
+        # April 2025.
+        node: ['20', '22']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

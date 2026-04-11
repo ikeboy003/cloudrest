@@ -14,6 +14,10 @@
 
 import { webcrypto } from 'node:crypto';
 
-if (typeof (globalThis as { crypto?: unknown }).crypto === 'undefined') {
-  (globalThis as { crypto: Crypto }).crypto = webcrypto as unknown as Crypto;
+// RUNTIME: double-cast via `unknown` so TS accepts the assignment
+// on both Workers-types (which narrows `globalThis.crypto` to
+// `Crypto`) and Node types (which don't declare it at all).
+const g = globalThis as unknown as { crypto?: Crypto };
+if (typeof g.crypto === 'undefined') {
+  g.crypto = webcrypto as unknown as Crypto;
 }
