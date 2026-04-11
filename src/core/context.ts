@@ -13,14 +13,18 @@
 // See ARCHITECTURE.md § Lifecycle contracts for how this context flows
 // through the eight-step lifecycle.
 
-// ----- Placeholder types ------------------------------------------------
+// ----- Real and placeholder types --------------------------------------
 //
-// These are replaced by real imports as each stage lands. The placeholder
-// strategy is deliberate: we want `context.schema` (etc.) to fail
-// typecheck before its stage lands, not compile as `any`.
+// Placeholders are replaced by real imports as each stage lands. The
+// placeholder strategy is deliberate: we want `context.schema` (etc.) to
+// fail typecheck before its stage lands, not compile as `any`.
 
-// AppConfig is real as of stage 2; see config/schema.ts.
+import type { AppConfig } from '../config/schema';
+import type { Env } from '../config/env';
+
+// Re-export the shape of worker bindings under the context-facing name.
 export type { AppConfig } from '../config/schema';
+export type WorkerBindings = Env;
 
 /** Populated in stage 8 (schema/cache). */
 export type SchemaCache = { readonly __stage8Placeholder: unique symbol };
@@ -30,12 +34,6 @@ export type AuthResult = { readonly __stage11Placeholder: unique symbol };
 
 /** Populated in stage 7 (executor/timing). */
 export type RequestTimer = { readonly __stage7Placeholder: unique symbol };
-
-/**
- * The raw Cloudflare Worker bindings. This is the one place env is read
- * from; every other module receives it via HandlerContext or AppConfig.
- */
-export type { Env as WorkerBindings } from '../config/env';
 
 /**
  * Cloudflare Worker execution context. Exposes `waitUntil` for deferred

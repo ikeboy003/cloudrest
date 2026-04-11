@@ -330,7 +330,29 @@ The aggregate name set is a closed allowlist (`avg`, `count`, `sum`, `min`, `max
 
 Behaviors the rewrite deliberately changes. Each item links to the critique finding that justifies it.
 
-_(Populated as each stage lands. Stage 0 has no behavior changes.)_
+#### Config: no silent fallback on invalid env values (stage 2)
+
+- **Previous behavior.** `readConfig` silently fell back to defaults when an env var failed to parse. `MAX_QUERY_COST=notanumber` became `0` (cost guard disabled). `DB_TX_END=rollback-always` became `commit`. Malformed `APP_SETTINGS` JSON silently became `{}`. Malformed `JWT_ROLE_CLAIM` silently used the entire JWT as the role.
+- **New behavior.** `loadConfig` collects every parse error into a `ConfigError[]` and returns it as the `Err` branch of a `Result`. A boot-time worker that sees any errors must refuse to serve traffic.
+- **Reason.** Critique findings #5, #23, #40, #41, #42, #43. Silent fallback is how the old code hid misconfiguration until something exploded in production.
+- **Test.** [tests/unit/config/load.test.ts](./tests/unit/config/load.test.ts) "hard validation (no silent fallback)" and "JWT_ROLE_CLAIM validation" blocks.
+- **Scope.** CloudREST v1 only. PostgREST has its own config validation rules; the CloudREST rewrite matches the spirit but not the exact error shape.
+
+#### Config: CORS defaults off (stage 2)
+
+- **Previous behavior.** `CORS_ALLOWED_ORIGINS` unset defaulted to `*` (PostgREST-compatible).
+- **New behavior.** `CORS_ALLOWED_ORIGINS` unset leaves `cors.allowedOrigins` as `null`. The router treats null as "no CORS headers, 403 on preflight" (wired in stage 16).
+- **Reason.** Critique #57. `*` is not a safe default for an internet-facing Worker running over a user's RLS-protected database.
+- **Test.** [tests/unit/config/load.test.ts](./tests/unit/config/load.test.ts) "CORS default".
+- **Scope.** Both CloudREST v1 and PostgREST.
+
+#### Config: debug mode defaults off (stage 2)
+
+- **Previous behavior.** `DB_DEBUG_ENABLED` defaulted unset, which was treated as "off", but there was no boot-time warning when it was set.
+- **New behavior.** Same default, but values other than exactly `"true"`/`"false"` are a `ConfigError`. The boot-time warning for enabled debug lands with stage 11.
+- **Reason.** Critique #84.
+- **Test.** [tests/unit/config/load.test.ts](./tests/unit/config/load.test.ts) happy-path defaults block.
+- **Scope.** CloudREST v1 only.
 
 When adding an intentional divergence, include:
 
