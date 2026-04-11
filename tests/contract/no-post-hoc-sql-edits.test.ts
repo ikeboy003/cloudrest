@@ -1,3 +1,4 @@
+/// <reference types="node" />
 // Stage 8 — contract test: no code path downstream of the builder
 // calls `.replace()` on a `BuiltQuery.sql`.
 //
@@ -12,6 +13,15 @@
 // `src/router/`, and `src/executor/` and asserts that none of them
 // references `.sql.replace(` on a BuiltQuery-shaped value. A match
 // fails the test and points at the file.
+//
+// RUNTIME: this contract test needs Node's `fs` / `path` / `process`
+// to walk the source tree. The tsconfig intentionally does NOT
+// include `@types/node` globally — the Workers runtime has no
+// Node, and leaking Node globals into `src/` would let a runtime
+// file accidentally `import 'node:fs'` and compile cleanly while
+// crashing in production. The `/// <reference types="node" />`
+// directive at the top of THIS file opts in locally without
+// affecting any other file in the graph.
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
