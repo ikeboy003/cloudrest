@@ -77,7 +77,21 @@ export function buildReadQuery(
   );
   if (!projectionResult.ok) return projectionResult;
   const projection = projectionResult.value;
-  const projectionParts: string[] = [projection.projectionSql];
+
+  // BUG FIX (#DD2): when the user wrote `select=authors(name)` the
+  // planner strips the embed into `plan.embeds` and leaves
+  // `plan.select = []`. `renderSelectProjectionAndGrouping` then
+  // falls back to `"schema"."table".*`, so the final projection ends
+  // up being `books.*, row_to_json(pgrst_1.*) AS authors` — the
+  // wildcard leaked through. The child-subquery path has a matching
+  // guard; replicate it at the root: when the root field projection
+  // is empty but there are embeds to splice in, drop the wildcard
+  // fallback and let the embed columns be the whole projection.
+  const rootProjectionIsEmptyFallback =
+    plan.select.length === 0 && plan.embeds.length > 0;
+  const projectionParts: string[] = rootProjectionIsEmptyFallback
+    ? []
+    : [projection.projectionSql];
 
   // BUG FIX (#BB13 / #BB14): an aggregate select (`select=count()` or
   // any mix with aggregate functions) cannot be combined with vector
@@ -101,6 +115,71 @@ export function buildReadQuery(
         'aggregate select cannot be combined with search rank (relevance is a non-aggregate column)',
       ),
     );
+  }
+
+  // BUG FIX (#FF1): the same reasoning applies to non-aggregate
+  // embeds. A to-one embed emits `row_to_json(pgrst_1.*)::jsonb`
+  // and a to-many emits `COALESCE("pgrst_1"."pgrst_1", '[]')` —
+  // both are non-aggregate columns that would need to appear in
+  // GROUP BY alongside the COUNT/SUM/etc. The user has no way to
+  // express that, so the combination is simply not supported.
+  // Aggregate embeds (`isAggregate: true`) are correlated scalar
+  // subqueries and ARE legal to mix with root aggregates.
+  if (projection.hasAggregates) {
+    const offendingEmbed = plan.embeds.find((e) => !e.isAggregate);
+    if (offendingEmbed) {
+      return err(
+        parseErrors.queryParam(
+          'select',
+          `aggregate select cannot be combined with non-aggregate embed "${offendingEmbed.alias}"`,
+        ),
+      );
+    }
+  }
+
+  // BUG FIX (#FF2): in an aggregate query, every ORDER BY term and
+  // every DISTINCT ON column must reference a grouped column.
+  // Without this guard, `select=count()&order=title.asc` would
+  // render `ORDER BY title` against an aggregate projection — a
+  // classic "column must appear in GROUP BY" error at runtime.
+  // `select=count()&distinct=category` is the same mistake via a
+  // different knob.
+  //
+  // The strict rule: the term must be a plain column reference
+  // (no relation prefix, no JSON path, not `*`) and its name must
+  // appear in `groupByFieldNames`. JSON-path grouping keys would
+  // need their full rendered expression to match, which the
+  // current planner does not emit — so they are conservatively
+  // rejected here.
+  if (projection.hasAggregates) {
+    const groupedNames = new Set(projection.groupByFieldNames);
+    for (const term of plan.order) {
+      const badTerm =
+        term.relation !== undefined ||
+        term.field.jsonPath.length > 0 ||
+        term.field.name === '*' ||
+        !groupedNames.has(term.field.name);
+      if (badTerm) {
+        return err(
+          parseErrors.queryParam(
+            'order',
+            `ORDER BY in an aggregate query must reference a grouped column (got "${term.field.name}")`,
+          ),
+        );
+      }
+    }
+    if (plan.distinct && plan.distinct.columns.length > 0) {
+      for (const col of plan.distinct.columns) {
+        if (!groupedNames.has(col)) {
+          return err(
+            parseErrors.queryParam(
+              'distinct',
+              `DISTINCT ON in an aggregate query must reference a grouped column (got "${col}")`,
+            ),
+          );
+        }
+      }
+    }
   }
 
   if (plan.search && plan.search.includeRank) {
@@ -195,24 +274,54 @@ export function buildReadQuery(
   if (!orderSqlResult.ok) return orderSqlResult;
   let orderSql = orderSqlResult.value;
 
-  if (plan.vector) {
-    // BUG FIX (#BB15): `DISTINCT ON (col)` requires the first
-    // ORDER BY expression to match the DISTINCT ON expression(s).
-    // When a vector plan is active without a user-supplied ORDER BY,
-    // the vector distance would become the primary ORDER BY and
-    // Postgres would reject the query with:
-    //   "SELECT DISTINCT ON expressions must match initial ORDER BY
-    //    expressions".
-    // Reject the combination here with a clearer error instead of
-    // emitting invalid SQL.
-    if (plan.distinct && plan.distinct.columns.length > 0 && orderSql === '') {
-      return err(
-        parseErrors.queryParam(
-          'order',
-          'DISTINCT ON combined with vector search requires an explicit "?order=" that starts with the DISTINCT ON columns',
-        ),
-      );
+  // BUG FIX (#DD3): `DISTINCT ON (a, b, ...)` requires the ORDER BY
+  // to START with the same expressions, in the same order. The
+  // previous guard only covered the no-order + vector case. Tighten
+  // it to cover ANY user order that does not begin with the distinct
+  // columns, and auto-synthesize the prefix when the user supplied
+  // nothing at all (the natural behavior for "give me one row per
+  // distinct category").
+  if (plan.distinct && plan.distinct.columns.length > 0) {
+    const distinctCols = plan.distinct.columns;
+    if (plan.order.length === 0) {
+      // No user order: synthesize `ORDER BY <distinct cols>` so the
+      // DISTINCT ON has a deterministic row to keep per group.
+      const synthetic = distinctCols
+        .map((c) => qualifiedColumnToSql(plan.target, c))
+        .join(', ');
+      orderSql = `ORDER BY ${synthetic}`;
+    } else {
+      // The user supplied an order. Verify the leading terms match
+      // the distinct columns, in order. A mismatched prefix would
+      // otherwise fail at runtime with "SELECT DISTINCT ON
+      // expressions must match initial ORDER BY expressions".
+      for (let i = 0; i < distinctCols.length; i++) {
+        const expected = distinctCols[i]!;
+        const term = plan.order[i];
+        if (
+          !term ||
+          term.relation !== undefined ||
+          term.field.jsonPath.length > 0 ||
+          term.field.name !== expected
+        ) {
+          return err(
+            parseErrors.queryParam(
+              'order',
+              `DISTINCT ON requires the first ORDER BY columns to be "${distinctCols.join(', ')}"`,
+            ),
+          );
+        }
+      }
     }
+  }
+
+  if (plan.vector) {
+    // BUG FIX (#BB15 / #DD3): when DISTINCT ON is in play, the
+    // DISTINCT ON + order-prefix validator above has already
+    // synthesized or verified an ORDER BY that starts with the
+    // distinct columns. The vector distance is safe to append as
+    // a tie-breaker in every case now — Postgres will see the
+    // distinct-column prefix first and accept the query.
     const distanceResult = renderVectorDistance(plan.target, plan.vector, builder);
     if (!distanceResult.ok) return distanceResult;
     const distanceExpr = distanceResult.value;
@@ -238,8 +347,9 @@ export function buildReadQuery(
   ]);
 
   // ----- Outer wrapper with count, body, optional GUCs ----------------
-  // BUG FIX (#BB9, #BB10): exact count must reflect grouping /
-  // HAVING / DISTINCT. Pass the shape of the inner query so the
+  // BUG FIX (#BB9, #BB10, #DD1): exact count must reflect
+  // grouping / HAVING / DISTINCT and any row-filtering joins from
+  // `!inner` embeds. Pass the shape of the inner query so the
   // count CTE can mirror it when needed.
   const { countCteSql, countSelectSql } = renderCount(plan, {
     whereParts,
@@ -248,6 +358,7 @@ export function buildReadQuery(
     distinctSql,
     projectionForDistinct: projection,
     fromSql,
+    hasRowFilteringJoins: embedResult.value.hasRowFilteringJoins,
   });
 
   const bodySql = renderBodyAggregate(plan);
@@ -309,6 +420,13 @@ interface CountRenderInput {
   readonly distinctSql: string;
   readonly projectionForDistinct: import('./fragments').RenderedProjection;
   readonly fromSql: string;
+  /**
+   * True when the inner subquery's FROM contains a join that can
+   * drop parent rows (`!inner` embed). Forces the count CTE to
+   * wrap the inner shape so the total reflects post-join
+   * cardinality.
+   */
+  readonly hasRowFilteringJoins: boolean;
 }
 
 /**
@@ -347,7 +465,15 @@ function renderCount(
     return { countCteSql: '', countSelectSql: 'null::bigint' };
   }
 
-  const { whereParts, groupBySql, havingSql, distinctSql, projectionForDistinct, fromSql } = input;
+  const {
+    whereParts,
+    groupBySql,
+    havingSql,
+    distinctSql,
+    projectionForDistinct,
+    fromSql,
+    hasRowFilteringJoins,
+  } = input;
   const whereSql =
     whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
   const tableSql = qualifiedIdentifierToSql(plan.target);
@@ -355,11 +481,22 @@ function renderCount(
 
   // A non-trivial inner shape means the counted rows are NOT just
   // the filtered base-table rows. HAVING and GROUP BY change the
-  // cardinality, and DISTINCT / DISTINCT ON collapses rows. In
-  // those cases the count CTE must wrap a subquery that mirrors
-  // the inner subquery's shape.
+  // cardinality, DISTINCT / DISTINCT ON collapses rows, and any
+  // `!inner` embed join drops parents that have no matching
+  // children. In each of those cases the count CTE must wrap a
+  // subquery that mirrors the inner subquery's shape.
+  //
+  // BUG FIX (#DD1): the old check ignored inner-join embeds. For
+  // `select=id,authors!inner(name)&Prefer: count=exact` the body
+  // query ran against `books INNER JOIN LATERAL authors ON ...`
+  // while the count CTE dropped straight back to `SELECT 1 FROM
+  // books`, producing a `total_result_set` that was systematically
+  // too high.
   const needsWrappedCount =
-    groupBySql !== '' || havingSql !== '' || distinctSql !== '';
+    groupBySql !== '' ||
+    havingSql !== '' ||
+    distinctSql !== '' ||
+    hasRowFilteringJoins;
 
   if (plan.count === 'exact') {
     if (!needsWrappedCount) {

@@ -44,6 +44,12 @@ const RESERVED = new Set([
   'vector',
   'vector.column',
   'vector.op',
+  // Search — same pattern as vector: parser owns extraction, planner
+  // owns validation (bug #EE5).
+  'search',
+  'search.columns',
+  'search.language',
+  'search.rank',
 ]);
 
 /**
@@ -72,6 +78,17 @@ export function parseQueryParams(
   let vectorValue: string | null = null;
   let vectorColumn: string | null = null;
   let vectorOp: string | null = null;
+  let searchTerm: string | null = null;
+  let searchColumns: string | null = null;
+  let searchLanguage: string | null = null;
+  let searchIncludeRank = false;
+  // BUG FIX (#HH7): track whether `search.rank` was SET separately
+  // from its boolean value, so the side-param guard can still flag
+  // `search.rank=false` without a `search=` as a malformed shape
+  // and so the strict validator below can reject unknown tokens
+  // (`search.rank=banana`) instead of silently treating them as
+  // false.
+  let searchRankExplicit = false;
 
   for (const [key, value] of params.entries()) {
     // ----- Reserved keys that own their own grammar -----
@@ -284,6 +301,46 @@ export function parseQueryParams(
       vectorOp = value;
       continue;
     }
+    // BUG FIX (#EE5): search was previously routed through a
+    // side-channel on `PlanReadInput`, leaving the parser-to-planner
+    // contract asymmetric with vector. Thread all four search keys
+    // through `ParsedQueryParams` the same way.
+    if (key === 'search') {
+      searchTerm = value;
+      continue;
+    }
+    if (key === 'search.columns') {
+      searchColumns = value;
+      continue;
+    }
+    if (key === 'search.language') {
+      searchLanguage = value;
+      continue;
+    }
+    if (key === 'search.rank') {
+      // BUG FIX (#HH7): strict validation. The old code silently
+      // collapsed any value to `false` when it wasn't a truthy
+      // spelling, so `search.rank=banana` became "no rank" instead
+      // of a parse error. Accept a closed set of truthy/falsy
+      // tokens and reject everything else. Also mark the flag as
+      // explicitly set so the side-param guard below can refuse
+      // `search.rank=false` without a `search=` value.
+      const lowered = value.toLowerCase();
+      if (lowered === 'true' || lowered === '1' || lowered === 'yes') {
+        searchIncludeRank = true;
+      } else if (lowered === 'false' || lowered === '0' || lowered === 'no') {
+        searchIncludeRank = false;
+      } else {
+        return err(
+          parseErrors.queryParam(
+            'search.rank',
+            `expected a boolean (true/false/1/0/yes/no), got "${value}"`,
+          ),
+        );
+      }
+      searchRankExplicit = true;
+      continue;
+    }
 
     // ----- Other reserved keys (no grammar yet at this stage) -----
     if (RESERVED.has(key)) continue;
@@ -330,6 +387,34 @@ export function parseQueryParams(
       ? null
       : { value: vectorValue, column: vectorColumn, op: vectorOp };
 
+  // BUG FIX (#EE5 / #AA12 parity, #HH7): side params without a
+  // primary `search=` value are almost always a user typo. Refuse
+  // the partial shape up front rather than silently ignoring them.
+  // `search.rank` participates regardless of its boolean value —
+  // the guard watches `searchRankExplicit` so `search.rank=false`
+  // without a `search=` still errors, matching the vector.* side
+  // param behavior.
+  if (
+    searchTerm === null &&
+    (searchColumns !== null || searchLanguage !== null || searchRankExplicit)
+  ) {
+    return err(
+      parseErrors.queryParam(
+        'search',
+        '"search.columns" / "search.language" / "search.rank" require a "search" value',
+      ),
+    );
+  }
+  const search =
+    searchTerm === null
+      ? null
+      : {
+          term: searchTerm,
+          columns: searchColumns,
+          language: searchLanguage,
+          includeRank: searchIncludeRank,
+        };
+
   return ok({
     canonical,
     rpcParams,
@@ -347,6 +432,7 @@ export function parseQueryParams(
     distinct,
     cursor,
     vector,
+    search,
   });
 }
 

@@ -124,20 +124,38 @@ export function resolveRelationship(
   }
 
   if (matches.length === 0) return { kind: 'not-found' };
-  if (matches.length === 1) return { kind: 'found', relationship: matches[0]! };
+
+  // BUG FIX (#HH4): the old shortcut returned the sole match without
+  // looking at `hint`, so `select=authors!wrong_hint(...)` silently
+  // accepted any hint string when there was exactly one matching
+  // relationship. A wrong hint should ALWAYS fail, whether or not
+  // the match set is ambiguous — a typo in the constraint name
+  // should never be swept under the rug.
+  const hintMatches = (r: Relationship): boolean => {
+    if (hint === undefined) return true;
+    const card = r.cardinality;
+    if (card.type === 'M2M') {
+      return (
+        card.junction.constraint1 === hint ||
+        card.junction.constraint2 === hint
+      );
+    }
+    return card.constraint === hint;
+  };
+
+  if (matches.length === 1) {
+    const sole = matches[0]!;
+    if (!hintMatches(sole)) return { kind: 'not-found' };
+    return { kind: 'found', relationship: sole };
+  }
 
   if (hint !== undefined) {
-    const hinted = matches.find((r) => {
-      const card = r.cardinality;
-      if (card.type === 'M2M') {
-        return (
-          card.junction.constraint1 === hint ||
-          card.junction.constraint2 === hint
-        );
-      }
-      return card.constraint === hint;
-    });
+    const hinted = matches.find(hintMatches);
     if (hinted) return { kind: 'found', relationship: hinted };
+    // Hint was supplied but did not match any candidate — the user
+    // asked for a specific constraint that does not exist, so
+    // "not found" is a better description than "ambiguous".
+    return { kind: 'not-found' };
   }
 
   return { kind: 'ambiguous', candidates: matches };

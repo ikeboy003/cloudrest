@@ -115,7 +115,15 @@ export function parseHttpRequest(
 ): Result<ParsedHttpRequest, CloudRestError> {
   const url = new URL(request.url);
   const method = request.method;
-  const pathSegments = decodePathSegments(url.pathname);
+  // BUG FIX (#GG17): a malformed percent-encoded segment (`%gg`,
+  // `%Z1`, lone `%`) used to fall through `decodeURIComponent`'s
+  // `URIError` catch and return the raw, undecoded segment — so the
+  // router silently routed `/books/%gg` as a relation literally
+  // named `%gg`, hitting a schema error deep in the planner. Return
+  // PGRST100 at the parse boundary instead.
+  const pathResult = decodePathSegments(url.pathname);
+  if (!pathResult.ok) return pathResult;
+  const pathSegments = pathResult.value;
 
   const resourceResult = resolveResource(pathSegments);
   if (!resourceResult.ok) return resourceResult;
@@ -175,17 +183,21 @@ export function parseHttpRequest(
 
 // ----- Internal helpers -------------------------------------------------
 
-function decodePathSegments(pathname: string): string[] {
-  return pathname
-    .split('/')
-    .filter((s) => s.length > 0)
-    .map((segment) => {
-      try {
-        return decodeURIComponent(segment);
-      } catch {
-        return segment;
-      }
-    });
+function decodePathSegments(
+  pathname: string,
+): Result<string[], CloudRestError> {
+  const segments: string[] = [];
+  for (const segment of pathname.split('/')) {
+    if (segment.length === 0) continue;
+    try {
+      segments.push(decodeURIComponent(segment));
+    } catch {
+      // BUG FIX (#GG17): malformed percent-encoding surfaces as a
+      // PGRST125 invalid-resource-path, not a silent pass-through.
+      return err(parseErrors.invalidResourcePath());
+    }
+  }
+  return ok(segments);
 }
 
 function resolveResource(

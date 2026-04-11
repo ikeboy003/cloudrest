@@ -9,11 +9,14 @@
 import type { QualifiedIdentifier } from '../http/request';
 import type { Table, TablesMap } from './table';
 import type { RelationshipsMap } from './relationship';
+import type { RoutinesMap } from './routine';
 
 export interface SchemaCache {
   readonly tables: TablesMap;
   /** FK graph used by embed planning. Empty map = no relationships. */
   readonly relationships: RelationshipsMap;
+  /** `/rpc/*` routine definitions keyed by `routineKey`. Populated by Stage 10. */
+  readonly routines: RoutinesMap;
   /** Epoch-ms of when the cache was loaded. */
   readonly loadedAt: number;
   /** Monotonic version counter, bumped on reload. */

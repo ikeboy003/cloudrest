@@ -39,6 +39,15 @@ type FieldItem = Extract<SelectItem, { type: 'field' }>;
 export interface RenderedProjection {
   readonly projectionSql: string;
   readonly groupByFieldSqls: readonly string[];
+  /**
+   * The root column names that appear in the non-aggregate grouping
+   * set, in the same order as `groupByFieldSqls`. Used by
+   * `buildReadQuery` to check that ORDER BY / DISTINCT ON terms on
+   * an aggregate query reference a grouped column (bug #FF2).
+   * Items with a JSON path are excluded because their grouping key
+   * is a compound expression, not a bare name.
+   */
+  readonly groupByFieldNames: readonly string[];
   readonly hasAggregates: boolean;
 }
 
@@ -79,6 +88,7 @@ export function renderSelectProjectionAndGrouping(
     return ok({
       projectionSql: qualifiedIdentifierToSql(target) + '.*',
       groupByFieldSqls: [],
+      groupByFieldNames: [],
       hasAggregates: false,
     });
   }
@@ -90,6 +100,7 @@ export function renderSelectProjectionAndGrouping(
     return ok({
       projectionSql: qualifiedIdentifierToSql(target) + '.*',
       groupByFieldSqls: [],
+      groupByFieldNames: [],
       hasAggregates: false,
     });
   }
@@ -113,6 +124,7 @@ export function renderSelectProjectionAndGrouping(
 
   const rendered: string[] = [];
   const groupByFieldSqls: string[] = [];
+  const groupByFieldNames: string[] = [];
   for (const item of fieldItems) {
     const fieldSqlResult = renderField(target, item.field, builder);
     if (!fieldSqlResult.ok) return fieldSqlResult;
@@ -127,11 +139,21 @@ export function renderSelectProjectionAndGrouping(
     // grouped, the latter were already rejected above.
     if (!item.aggregateFunction && item.field.name !== '*') {
       groupByFieldSqls.push(fieldSql);
+      // BUG FIX (#FF2): track the bare column name alongside the
+      // rendered SQL so `buildReadQuery` can check whether an ORDER
+      // BY / DISTINCT ON term references a grouped column. Items
+      // with a JSON path are NOT added because their grouping key
+      // is a compound expression, not a name the caller can match
+      // against `term.field.name`.
+      if (item.field.jsonPath.length === 0) {
+        groupByFieldNames.push(item.field.name);
+      }
     }
   }
   return ok({
     projectionSql: rendered.join(', '),
     groupByFieldSqls,
+    groupByFieldNames,
     hasAggregates,
   });
 }

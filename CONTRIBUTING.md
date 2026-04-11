@@ -55,4 +55,4 @@ Unit tests must not mock neighboring modules. If you find yourself mocking `pars
 
 ## License of contributions
 
-By submitting a contribution, you agree that your contribution is licensed under the [FSL-1.1-ALv2](LICENSE) on the same terms as the rest of the project.
+By submitting a contribution, you agree that your contribution may be licensed under the [AGPL-3.0-only](LICENSE) project license and under commercial licenses offered by Divitiae Holdings LLC.

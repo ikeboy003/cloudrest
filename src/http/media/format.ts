@@ -13,47 +13,102 @@
 import type { MediaTypeId } from './types';
 
 /**
- * Format a raw JSON-array body string for the chosen output media type.
- * Returns the formatted string.
+ * Result of `formatBody`. Most formatters always return a body, but
+ * singular has a cardinality constraint: the inner subquery must
+ * return exactly one row. Non-conforming counts surface as a typed
+ * error so the caller can map them to PGRST116 (406) instead of
+ * silently returning the first row.
  *
- * The input must be a JSON array (what Postgres `json_agg` produces). If
- * it is not, formatters that need array semantics pass through unchanged
- * — matching PostgREST's lenient behavior.
+ * BUG FIX (#GG9): the old signature was `string` and `singularBody`
+ * just unwrapped `parsed[0] ?? null`. A query that matched 5 rows
+ * with `Accept: application/vnd.pgrst.object+json` would return
+ * whichever row happened to be first — potentially leaking data the
+ * user didn't ask for and hiding the "more than one" condition.
  */
-export function formatBody(mediaId: MediaTypeId, rawJsonArrayBody: string): string {
+export type FormatBodyResult =
+  | { readonly kind: 'ok'; readonly body: string }
+  | {
+      readonly kind: 'singular-cardinality';
+      readonly rowCount: number;
+    };
+
+/**
+ * Format a raw JSON-array body string for the chosen output media
+ * type. The input must be a JSON array (what Postgres `json_agg`
+ * produces). Non-array inputs fall through unchanged for
+ * lenient-pass-through formats, matching PostgREST's behavior.
+ */
+export function formatBody(
+  mediaId: MediaTypeId,
+  rawJsonArrayBody: string,
+): FormatBodyResult {
   switch (mediaId) {
     case 'json':
     case 'any':
     case 'openapi':
     case 'array':
-    case 'ndjson':
     case 'octet-stream':
     case 'plan-json':
     case 'plan-text':
-      return rawJsonArrayBody;
+      return { kind: 'ok', body: rawJsonArrayBody };
+    case 'ndjson':
+      return { kind: 'ok', body: jsonArrayToNdjson(rawJsonArrayBody) };
     case 'csv':
-      return jsonArrayToCsv(rawJsonArrayBody);
+      return { kind: 'ok', body: jsonArrayToCsv(rawJsonArrayBody) };
     case 'singular':
       return singularBody(rawJsonArrayBody);
     case 'singular-stripped':
       return singularBody(stripNulls(rawJsonArrayBody));
     case 'array-stripped':
-      return stripNulls(rawJsonArrayBody);
+      return { kind: 'ok', body: stripNulls(rawJsonArrayBody) };
     case 'geojson':
-      return jsonArrayToGeoJson(rawJsonArrayBody);
+      return { kind: 'ok', body: jsonArrayToGeoJson(rawJsonArrayBody) };
   }
 }
 
 // ----- singular ---------------------------------------------------------
 
-function singularBody(raw: string): string {
+function singularBody(raw: string): FormatBodyResult {
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return raw;
-    return JSON.stringify(parsed[0] ?? null);
+    parsed = JSON.parse(raw);
+  } catch {
+    // Lenient pass-through — mirror the other formatters. Non-JSON
+    // input means the executor emitted something unusual; let the
+    // client see it rather than inventing a cardinality error.
+    return { kind: 'ok', body: raw };
+  }
+  if (!Array.isArray(parsed)) {
+    return { kind: 'ok', body: raw };
+  }
+  // BUG FIX (#GG9): enforce the cardinality contract. 0 or 2+ rows
+  // is PGRST116 at the caller.
+  if (parsed.length !== 1) {
+    return { kind: 'singular-cardinality', rowCount: parsed.length };
+  }
+  return { kind: 'ok', body: JSON.stringify(parsed[0]) };
+}
+
+// ----- ndjson -----------------------------------------------------------
+
+/**
+ * Convert a JSON array of rows into newline-delimited JSON (one row
+ * per line, no trailing newline on the last row).
+ *
+ * BUG FIX (#GG10): the old formatter passed the raw JSON array
+ * through unchanged, so `application/x-ndjson` responses were
+ * syntactically JSON arrays — wrong content type for the payload
+ * and not parseable by ndjson-aware clients.
+ */
+function jsonArrayToNdjson(raw: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
   } catch {
     return raw;
   }
+  if (!Array.isArray(parsed)) return raw;
+  return parsed.map((row) => JSON.stringify(row)).join('\n');
 }
 
 // ----- stripNulls -------------------------------------------------------

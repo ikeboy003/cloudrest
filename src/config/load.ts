@@ -23,6 +23,7 @@ import type {
   TxEndMode,
 } from './schema';
 import type { ErrorVerbosity } from '../core/errors';
+import { parseClaimPath } from '../auth/claims';
 
 // ----- Small typed helpers ---------------------------------------------
 //
@@ -224,6 +225,24 @@ function validateRoleClaim(
     });
     return '.role';
   }
+  // BUG FIX (#GG3): run the real runtime parser as the final check.
+  // The syntactic tests above catch the common typos
+  // (`app..role`, `app[broken`), but they let shapes like `.role!`
+  // through because there is no `..`, trailing `.`, or trailing `[`.
+  // The runtime parser returns `[]` on those malformed paths, and
+  // the old walker interpreted empty steps as "return the root",
+  // letting the role become the JSON-stringified JWT payload. Catch
+  // the parse failure at boot so misconfiguration never reaches
+  // request time.
+  const parsed = parseClaimPath(value);
+  if (parsed.length === 0) {
+    errors.push({
+      variable: 'JWT_ROLE_CLAIM',
+      value,
+      reason: 'claim path is not a valid JSONPath expression',
+    });
+    return '.role';
+  }
   return value;
 }
 
@@ -280,6 +299,35 @@ function buildDatabase(env: Env, errors: ConfigError[]): DatabaseConfig {
     debugEnabled: parseBool('DB_DEBUG_ENABLED', env.DB_DEBUG_ENABLED, false, errors),
     planEnabled: parseBool('DB_PLAN_ENABLED', env.DB_PLAN_ENABLED, false, errors),
     appSettings: parseAppSettings(env.APP_SETTINGS, errors),
+    pool: {
+      maxConnections: parseIntRequired(
+        'DB_MAX_CONNECTIONS',
+        env.DB_MAX_CONNECTIONS,
+        10,
+        errors,
+        { min: 1 },
+      ),
+      idleTimeoutSeconds: parseIntRequired(
+        'DB_IDLE_TIMEOUT',
+        env.DB_IDLE_TIMEOUT,
+        10,
+        errors,
+        { min: 0 },
+      ),
+      poolTimeoutMs: parseIntRequired(
+        'DB_POOL_TIMEOUT',
+        env.DB_POOL_TIMEOUT,
+        30_000,
+        errors,
+        { min: 1 },
+      ),
+      preparedStatements: parseBool(
+        'DB_PREPARED_STATEMENTS',
+        env.DB_PREPARED_STATEMENTS,
+        false,
+        errors,
+      ),
+    },
   };
 }
 

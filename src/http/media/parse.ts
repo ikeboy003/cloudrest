@@ -19,6 +19,13 @@ import { MEDIA_TYPES, type MediaType, type MediaTypeId } from './types';
  *
  * Empty or missing Accept maps to `[{ id: 'any' }]`, matching PostgREST's
  * behavior of treating missing Accept as "client takes whatever".
+ *
+ * BUG FIX (#GG12): `q=0` means "not acceptable". The old code dropped
+ * those entries entirely, so a later `(star)/(star)` in the same Accept
+ * could quietly re-select a media type the client had explicitly excluded.
+ * Keep the q=0 entries in the returned list — the negotiator's
+ * wildcard path now consults them and refuses to pick any offered
+ * type whose id matches an excluded entry.
  */
 export function parseAcceptHeader(raw: string | null): MediaType[] {
   if (!raw || raw.trim() === '') return [acceptAny()];
@@ -29,7 +36,6 @@ export function parseAcceptHeader(raw: string | null): MediaType[] {
   for (const part of parts) {
     const token = parseSingleMediaType(part);
     if (!token) continue;
-    if (token.quality <= 0) continue; // q=0 means "not acceptable"
     parsed.push(token);
   }
 
@@ -107,6 +113,30 @@ function parseSingleMediaType(raw: string): MediaType | null {
     } else if (key) {
       params[key] = value;
     }
+  }
+
+  // BUG FIX (#GG11): recognize `type/*` subtype wildcards
+  // (`application/*`, `text/*`, …). The token's `id` is `'any'`
+  // but `typeWildcard: true` tells the negotiator to match any
+  // offered media type that shares the top-level `type`.
+  if (subtype === '*') {
+    if (type === '*') {
+      return {
+        id: 'any',
+        type,
+        subtype,
+        params,
+        quality,
+      };
+    }
+    return {
+      id: 'any',
+      type,
+      subtype,
+      params,
+      quality,
+      typeWildcard: true,
+    };
   }
 
   const match = resolveMediaTypeId(type, subtype, params);

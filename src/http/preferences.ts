@@ -185,16 +185,21 @@ export function preferenceAppliedHeader(prefs: Preferences): string | null {
 }
 
 function isValidTimezone(tz: string): boolean {
+  // BUG FIX (#GG14): `UTC` is the de-facto universal timezone and
+  // every real Postgres backend accepts it, but several older
+  // Node versions omit it from `Intl.supportedValuesOf('timeZone')`,
+  // and the cloudflare-workers runtime has historically shipped
+  // with a partial IANA list. Allow `UTC` (and the common
+  // case-normalized variants) explicitly up front so
+  // `Prefer: timezone=UTC` is never silently rejected.
+  if (tz === 'UTC' || tz === 'Etc/UTC' || tz === 'Zulu') return true;
+
+  // Primary check: ask Intl whether the zone is valid. Rather than
+  // relying on `supportedValuesOf` (which can return a partial list),
+  // use the constructor — Postgres will validate the final name at
+  // session-apply time anyway; this is a type check for obvious
+  // typos.
   try {
-    const maybeSupported = (
-      Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
-    ).supportedValuesOf;
-    if (typeof maybeSupported === 'function') {
-      const zones = maybeSupported('timeZone');
-      return zones.includes(tz);
-    }
-    // Fallback: construct a DateTimeFormat. Postgres will validate the
-    // real name at session apply time; this catches obvious typos.
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     new Intl.DateTimeFormat(undefined, { timeZone: tz });
     return true;

@@ -318,7 +318,13 @@ describe('buildReadQuery — combined features', () => {
     const select = expectOk(parseSelect('id,title'));
     const filter = expectOk(parseFilter('published', 'is.true'));
     expect(filter).not.toBeNull();
-    const order = expectOk(parseOrder('title.asc'));
+    // BUG FIX (#DD3): DISTINCT ON (category) requires the ORDER BY
+    // to start with `category`. The previous test used
+    // `parseOrder('title.asc')`, which Postgres would have rejected
+    // at runtime with "SELECT DISTINCT ON expressions must match
+    // initial ORDER BY expressions". Use a valid order that starts
+    // with the distinct column and tie-breaks on `title`.
+    const order = expectOk(parseOrder('category.asc,title.asc'));
     const built = expectOk(
       buildReadQuery(
         basePlan({

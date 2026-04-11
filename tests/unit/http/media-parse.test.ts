@@ -32,10 +32,19 @@ describe('parseAcceptHeader', () => {
     expect(result[1]!.id).toBe('csv');
   });
 
-  it('filters q=0 entries (not acceptable)', () => {
+  it('keeps q=0 entries so the negotiator can honor them as exclusions', () => {
+    // BUG FIX (#GG12): q=0 means "not acceptable". The previous
+    // behavior dropped those entries, so a later `*/*` could
+    // silently re-select the excluded type. They are now preserved
+    // in the parsed list (with quality: 0) and the negotiator
+    // enforces the exclusion.
     const result = parseAcceptHeader('text/csv;q=0, application/json');
-    expect(result.length).toBe(1);
+    expect(result.length).toBe(2);
+    // Sort order is quality desc, so json (q=1) comes first, csv
+    // (q=0) last.
     expect(result[0]!.id).toBe('json');
+    expect(result[1]!.id).toBe('csv');
+    expect(result[1]!.quality).toBe(0);
   });
 
   it('clamps q > 1 to 1', () => {
@@ -43,9 +52,13 @@ describe('parseAcceptHeader', () => {
     expect(result[0]!.quality).toBe(1);
   });
 
-  it('treats non-numeric q as 0 (unacceptable)', () => {
+  it('treats non-numeric q as 0 (kept for negotiator exclusion)', () => {
+    // BUG FIX (#GG12): non-numeric q parses as 0 (per
+    // parseQuality) and is retained so the negotiator can treat
+    // it as an explicit exclusion, same as an explicit `q=0`.
     const result = parseAcceptHeader('application/json;q=abc');
-    expect(result.length).toBe(0);
+    expect(result.length).toBe(1);
+    expect(result[0]!.quality).toBe(0);
   });
 
   it('drops unknown media types (they cannot be served)', () => {

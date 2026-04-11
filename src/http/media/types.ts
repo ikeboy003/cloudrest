@@ -36,6 +36,19 @@ export interface MediaType {
   readonly params: Readonly<Record<string, string>>;
   /** RFC 7231 quality value, 0.0–1.0. 1.0 if not specified. */
   readonly quality: number;
+  /**
+   * True when the token used a subtype wildcard (`application/*`).
+   * `id` is always `'any'` in that case, but `type` carries the
+   * concrete top-level type the client will accept. The negotiator
+   * uses this flag to match the wildcard against every offered
+   * media type whose registry entry shares that top-level type.
+   *
+   * BUG FIX (#GG11): the old parser only recognized `* / *` and
+   * rejected `application/*`, so an Accept header of
+   * `application/*` produced a 406 even though the server could
+   * cleanly serve `application/json`.
+   */
+  readonly typeWildcard?: boolean;
 }
 
 interface MediaTypeDefinition {

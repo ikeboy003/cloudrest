@@ -8,7 +8,7 @@ A PostgREST-compatible REST API that runs as a Cloudflare Worker and talks to Po
 
 [![CI](https://github.com/ikeboy003/cloudrest/actions/workflows/ci.yml/badge.svg)](https://github.com/ikeboy003/cloudrest/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/ikeboy003/cloudrest/actions/workflows/codeql.yml/badge.svg)](https://github.com/ikeboy003/cloudrest/actions/workflows/codeql.yml)
-[![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue.svg)](LICENSE)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 [![Node.js >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](.nvmrc)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -94,6 +94,10 @@ CloudREST is pre-1.0. The public API (query grammar, response shapes, env vars) 
 
 ## License
 
-Released under the [Functional Source License, Version 1.1, ALv2 Future License](LICENSE) (`FSL-1.1-ALv2`). You can read, modify, self-host, and contribute to the code freely for any purpose **except** offering it as a competing commercial hosted service. The license automatically converts to Apache License 2.0 two years after each release, so every version becomes fully open source on a rolling schedule.
+CloudREST is released under the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`).
+
+Commercial use, self-hosting, and hosted services are allowed under the AGPL. If you want to use CloudREST without AGPL obligations, including in proprietary products or services, see [COMMERCIAL.md](COMMERCIAL.md).
+
+The CloudREST name and branding are not licensed for confusing or misleading use. See [TRADEMARKS.md](TRADEMARKS.md).
 
 Copyright © 2026 Divitiae Holdings LLC.

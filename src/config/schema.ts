@@ -21,6 +21,21 @@ export type OpenApiMode = 'follow-privileges' | 'ignore-privileges' | 'disabled'
 
 export type LogLevel = 'crit' | 'error' | 'warn' | 'info';
 
+/**
+ * Postgres connection-pool settings. Stage 7 (executor boundary) reads
+ * this to size the per-isolate `postgres.js` client.
+ */
+export interface PoolConfig {
+  /** `DB_MAX_CONNECTIONS` — max connections held open in the isolate. */
+  readonly maxConnections: number;
+  /** `DB_IDLE_TIMEOUT` seconds — connection idle reaper. */
+  readonly idleTimeoutSeconds: number;
+  /** `DB_POOL_TIMEOUT` ms — max wait for a free connection. */
+  readonly poolTimeoutMs: number;
+  /** `DB_PREPARED_STATEMENTS` — whether postgres.js uses prepared statements. */
+  readonly preparedStatements: boolean;
+}
+
 export interface DatabaseConfig {
   /** Schemas exposed through the API, in search-path order. */
   readonly schemas: readonly string[];
@@ -52,6 +67,8 @@ export interface DatabaseConfig {
   readonly planEnabled: boolean;
   /** GUCs injected into every transaction via `SET LOCAL`. */
   readonly appSettings: Readonly<Record<string, string>>;
+  /** Connection-pool settings for the executor's `postgres.js` client. */
+  readonly pool: PoolConfig;
 }
 
 export interface AuthConfig {

@@ -4,7 +4,7 @@
 
 If you discover a security vulnerability in CloudREST, please report it privately. Do **not** open a public issue.
 
-Email: security@divitiae.holdings
+Email: nathanael.aninweze@outlook.com
 
 Please include:
 

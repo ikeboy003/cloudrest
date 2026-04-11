@@ -39,10 +39,22 @@ describe('parseRange — basic', () => {
     if (!r.ok) expect(r.error.code).toBe('PGRST103');
   });
 
-  it('ignores Range header on non-GET methods', () => {
+  it('rejects a Range header on non-GET/HEAD methods', () => {
+    // BUG FIX (#GG13): the old behavior silently ignored a Range
+    // header on POST/PUT/PATCH/DELETE, so a client sending
+    // `Range: 0-24` on a PUT got the full mutation applied
+    // instead of the PGRST114 "limit not allowed for PUT" it
+    // would have gotten via `?limit=`. The parser now rejects
+    // any Range header on write methods up front.
     const r = parseRange({ method: 'POST', headers: headersOf('0-24') });
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value).toEqual({ offset: 0, limit: null });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe('PGRST114');
+  });
+
+  it('also rejects a Range header on PUT directly', () => {
+    const r = parseRange({ method: 'PUT', headers: headersOf('0-24') });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe('PGRST114');
   });
 
   it('rejects PUT with a range override', () => {

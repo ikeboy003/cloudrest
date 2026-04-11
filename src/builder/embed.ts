@@ -57,19 +57,33 @@ export interface RenderedEmbeds {
   readonly columns: readonly string[];
   readonly joins: readonly string[];
   /**
-   * Map from the user-visible embed alias (e.g. `authors`) to the
-   * internal LATERAL alias (`pgrst_1`) for every to-one embed that
-   * is reachable as a target for `order=embed(col).asc` on the
-   * parent. Aggregate and to-many embeds are NOT in this map — the
-   * planner already rejects ORDER BY against them.
+   * Map from every name the planner accepts for a to-one embed
+   * (the explicit alias AND the underlying child-table name) to
+   * the internal LATERAL alias (`pgrst_1`). The planner resolves
+   * `order=rel(col).asc` against either form, so the builder must
+   * be able to find both.
    *
    * BUG FIX (#CC2): root-level `?order=rel(col).asc` used to render
    * a raw `"schema"."rel"."col"` reference in ORDER BY, even though
    * the embed was joined via `LEFT JOIN LATERAL (...) AS pgrst_1`.
    * Postgres then rejected the query with "missing FROM-clause
    * entry". Use the lateral alias instead.
+   *
+   * BUG FIX (#DD4): previously only the user-visible alias was
+   * mapped, so `select=id,author:authors(name)&order=authors(...)`
+   * passed planning (the planner accepts the child-table name) and
+   * then failed at render. Both names are mapped now.
    */
   readonly embedAliases: ReadonlyMap<string, string>;
+  /**
+   * True when at least one rendered embed uses a join type that
+   * filters parent rows (`!inner` on either to-one or to-many, or
+   * an M2M junction — though M2M is currently refused outright).
+   * The count renderer consults this flag so `Prefer: count=exact`
+   * reflects the post-join cardinality instead of the base-table
+   * row count.
+   */
+  readonly hasRowFilteringJoins: boolean;
 }
 
 /**
@@ -88,16 +102,52 @@ export function renderEmbeds(
   const columns: string[] = [];
   const joins: string[] = [];
   const embedAliases = new Map<string, string>();
+  let hasRowFilteringJoins = false;
+
+  // BUG FIX (#FF4): the child-table-name fallback entry is only
+  // safe when at most ONE embed on this request points at that
+  // table. When multiple aliases reuse the same child table
+  // (`select=a:authors(id),b:authors(name)`), a bare `authors`
+  // reference is ambiguous — the old code set the map twice and
+  // silently preferred the last insert. Count occurrences up
+  // front so ambiguous child-table names are omitted from the
+  // map entirely; the planner has already rejected the ambiguous
+  // ORDER BY case with PGRST201.
+  const childTableNameCounts = new Map<string, number>();
+  for (const embed of embeds) {
+    const name = embed.child.target.name;
+    childTableNameCounts.set(name, (childTableNameCounts.get(name) ?? 0) + 1);
+  }
+
   for (const embed of embeds) {
     const result = renderEmbed(parent, embed, counter, builder);
     if (!result.ok) return result;
     if (result.value.column !== '') columns.push(result.value.column);
     if (result.value.join !== '') joins.push(result.value.join);
     if (result.value.lateralAlias !== undefined) {
+      // Explicit alias is always unambiguous (the parser's select
+      // grammar allows one alias per select item).
       embedAliases.set(embed.alias, result.value.lateralAlias);
+      // Child-table-name fallback — only safe when exactly one
+      // embed points at that table AND the alias differs from it.
+      const childTableName = embed.child.target.name;
+      if (
+        childTableName !== embed.alias &&
+        (childTableNameCounts.get(childTableName) ?? 0) === 1
+      ) {
+        embedAliases.set(childTableName, result.value.lateralAlias);
+      }
+    }
+    // `!inner` filters rows regardless of cardinality. A to-many
+    // `!inner` is implemented via an ON condition that rejects
+    // parents with no matching children; a to-one `!inner` is
+    // emitted as INNER JOIN LATERAL. Either shape changes the
+    // post-join cardinality relative to the base table.
+    if (embed.joinType === 'inner') {
+      hasRowFilteringJoins = true;
     }
   }
-  return ok({ columns, joins, embedAliases });
+  return ok({ columns, joins, embedAliases, hasRowFilteringJoins });
 }
 
 interface RenderedEmbed {
@@ -198,6 +248,18 @@ function renderSpreadEmbed(
   if (!innerResult.ok) return innerResult;
   const column = `${escapedAlias}.*`;
   const join = `${joinWord} JOIN LATERAL (${innerResult.value}) AS ${escapedAlias} ON TRUE`;
+  // BUG FIX (#FF3): a to-one spread embed (`...authors(name)`) is
+  // joined through the same LATERAL alias shape as a non-spread
+  // to-one embed, so it is a valid target for root-level
+  // `order=rel(col).asc`. The planner accepts the combination
+  // because the relationship is to-one, but the builder used to
+  // return no `lateralAlias` here, so the ORDER BY resolver then
+  // failed to find the embed and errored. Only to-ONE spreads are
+  // reported — to-many spreads aggregate columns rather than
+  // project a single row, so ordering by them has no meaning.
+  if (embed.isToOne) {
+    return ok({ column, join, lateralAlias: alias });
+  }
   return ok({ column, join });
 }
 
@@ -371,7 +433,19 @@ function renderChildSelect(
   // Child ORDER / LIMIT — child order terms always target the child
   // directly (they were stripped of their leading path segments at
   // planning time).
-  const orderResult = renderChildOrder(child, childQi, builder);
+  //
+  // BUG FIX (#HH8): pass the nested embeds' alias map so a nested
+  // related order (`?embed.order=nested(col).asc`) resolves to the
+  // nested LATERAL alias instead of bouncing off a generic "related
+  // order not supported in this context" error. The planner has
+  // already validated that `nested` is a to-one embed rooted inside
+  // this child.
+  const orderResult = renderChildOrder(
+    child,
+    childQi,
+    builder,
+    nestedResult.value.embedAliases,
+  );
   if (!orderResult.ok) return orderResult;
   const orderStr = orderResult.value;
 
@@ -391,9 +465,10 @@ function renderChildOrder(
   child: ReadPlanSubtree,
   childQi: QualifiedIdentifier,
   builder: SqlBuilder,
+  nestedEmbedAliases: ReadonlyMap<string, string>,
 ): Result<string, CloudRestError> {
   if (child.order.length === 0) return ok('');
-  return renderOrderClause(childQi, child.order, builder);
+  return renderOrderClause(childQi, child.order, builder, nestedEmbedAliases);
 }
 
 // ----- Join conditions -------------------------------------------------

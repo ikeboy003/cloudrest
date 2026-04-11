@@ -65,4 +65,20 @@ export interface ParsedQueryParams {
     readonly column: string | null;
     readonly op: string | null;
   } | null;
+  /**
+   * `?search=...&search.columns=...&search.language=...&search.rank=...`
+   * full-text-search inputs. Parser owns extraction; the planner
+   * owns column validation.
+   *
+   * BUG FIX (#EE5): search keys used to only reach the planner via
+   * a side-channel `PlanReadInput.search` that the handler had to
+   * pluck manually. The parser-to-planner contract now threads
+   * them through `ParsedQueryParams` for consistency with vector.
+   */
+  readonly search: {
+    readonly term: string;
+    readonly columns: string | null;
+    readonly language: string | null;
+    readonly includeRank: boolean;
+  } | null;
 }

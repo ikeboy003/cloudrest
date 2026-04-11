@@ -37,10 +37,7 @@ describe('planRead embeds — basic resolution', () => {
   });
 
   it('resolves a to-many embed with a nested column list', () => {
-    const r = expectOk(plan('select=id,reviews(id,rating)'), {
-      schema: 'public',
-      name: 'books',
-    });
+    const r = expectOk(plan('select=id,reviews(id,rating)'));
     expect(r.embeds).toHaveLength(1);
     const embed = r.embeds[0]!;
     expect(embed.isToOne).toBe(false);

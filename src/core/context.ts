@@ -21,19 +21,25 @@
 
 import type { AppConfig } from '../config/schema';
 import type { Env } from '../config/env';
+import type { RequestTimer } from '../executor/timer';
+import type { AuthClaims } from '../auth/authenticate';
+import type { SchemaCache as RealSchemaCache } from '../schema/cache';
 
 // Re-export the shape of worker bindings under the context-facing name.
 export type { AppConfig } from '../config/schema';
 export type WorkerBindings = Env;
 
-/** Populated in stage 8 (schema/cache). */
-export type SchemaCache = { readonly __stage8Placeholder: unique symbol };
+/** Stage 8 — real type, re-exported for downstream consumers. */
+export type SchemaCache = RealSchemaCache;
 
-/** Populated in stage 11 (auth security). */
-export type AuthResult = { readonly __stage11Placeholder: unique symbol };
+/**
+ * Stage 8a — auth result is now the real `AuthClaims` shape. Stage
+ * 11 will extend this with resolved-role and challenge-header fields.
+ */
+export type AuthResult = AuthClaims;
 
-/** Populated in stage 7 (executor/timing). */
-export type RequestTimer = { readonly __stage7Placeholder: unique symbol };
+/** Stage 7 (executor/timing) — real type, re-exported for downstream consumers. */
+export type { RequestTimer } from '../executor/timer';
 
 /**
  * Cloudflare Worker execution context. Exposes `waitUntil` for deferred

@@ -124,16 +124,15 @@ describe('planRead — stage-6b: embeds, search, vector are now planned', () => 
   // notImplemented sentinel. Positive embed tests live in
   // tests/unit/planner/plan-read-embeds.test.ts with a relationship
   // fixture attached.
-  it('surfaces PGRST202 when an embedded filter targets an unknown relation', () => {
-    // The filter is "posts.title=eq.Hello" which the parser treats as a
-    // non-root filter. With no embed named `posts` in the select list,
-    // the filter has nowhere to attach — it is tolerated silently at
-    // planning time because embed filters are only validated against
-    // their own subtree, and there is no subtree to walk. The behavior
-    // here documents current intent: no error on a dangling non-root
-    // filter that has no home.
-    const r = expectOk(plan('posts.title=eq.Hello'));
-    expect(r.embeds).toEqual([]);
+  it('rejects a dangling embed filter that targets no selected embed', () => {
+    // BUG FIX (#EE1): the previous iteration of this test pinned the
+    // broken behavior — `posts.title=eq.Hello` with no `posts` embed
+    // on the request used to silently disappear at planning time.
+    // The planner now refuses orphan non-root filter/logic/order/
+    // range params with PGRST108 so the user sees the typo instead
+    // of getting a query that ignores one of their filters.
+    const r = expectErr(plan('posts.title=eq.Hello'));
+    expect(r.code).toBe('PGRST108');
   });
 
   it('rejects an embed on an unknown relation with PGRST202', () => {

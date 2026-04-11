@@ -50,15 +50,23 @@ export interface ParseRangeInput {
 export function parseRange(
   input: ParseRangeInput,
 ): Result<NonnegRange, CloudRestError> {
-  let headerRange: NonnegRange = ALL_ROWS;
+  // BUG FIX (#GG13): the old code only parsed the Range header when
+  // the method was GET — a `Range: 0-24` on a PUT was therefore
+  // ignored silently even though the comment and `putLimitNotAllowed`
+  // error both promise rejection. PUT is now checked first: any
+  // Range header on PUT is an immediate PGRST114, regardless of
+  // whether the value parses. POST / PATCH / DELETE also have
+  // undefined semantics for Range and are rejected the same way.
+  const rawRange = input.headers.get('range');
+  if (rawRange !== null && input.method !== 'GET' && input.method !== 'HEAD') {
+    return err(parseErrors.putLimitNotAllowed());
+  }
 
-  if (input.method === 'GET') {
-    const rawRange = input.headers.get('range');
-    if (rawRange !== null) {
-      const parsed = parseRangeHeaderValue(rawRange);
-      if (!parsed.ok) return parsed;
-      headerRange = parsed.value;
-    }
+  let headerRange: NonnegRange = ALL_ROWS;
+  if (rawRange !== null && (input.method === 'GET' || input.method === 'HEAD')) {
+    const parsed = parseRangeHeaderValue(rawRange);
+    if (!parsed.ok) return parsed;
+    headerRange = parsed.value;
   }
 
   // Reject descending ranges (already surfaced as limit = -1 inside parseRangeHeaderValue).
@@ -103,7 +111,14 @@ function parseRangeHeaderValue(raw: string): Result<NonnegRange, CloudRestError>
   return ok({ offset: start, limit: end - start + 1 });
 }
 
-function intersectRanges(a: NonnegRange, b: NonnegRange): NonnegRange {
+/**
+ * Intersect two `NonnegRange`s. Exported so the read handler can
+ * fold the query-param `?limit=/offset=` range (parsed later in the
+ * pipeline) into the Range-header-derived `topLevelRange` that
+ * `parseHttpRequest` produces up front. Bug #HH1 — the two used to
+ * live in different phases and never met.
+ */
+export function intersectRanges(a: NonnegRange, b: NonnegRange): NonnegRange {
   if (a.limit === null && b.limit === null) {
     return { offset: Math.max(a.offset, b.offset), limit: null };
   }

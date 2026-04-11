@@ -77,6 +77,7 @@ export function makeSchema(
   return {
     tables: map,
     relationships: buildRelationshipsMap(relationships),
+    routines: new Map(),
     loadedAt: 0,
     version: 1,
   };

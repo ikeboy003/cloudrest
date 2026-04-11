@@ -1177,7 +1177,13 @@ describe('scratch builder KK: cross-feature param interleaving', () => {
 
   it('KK2 filter + having + order + limit', () => {
     const filter = expectOk(parseFilter('stock', 'gt.0'));
-    const order = expectOk(parseOrder('title.asc'));
+    // BUG FIX (#FF2): in an aggregate query, ORDER BY must
+    // reference a grouped column. The previous version of this
+    // test ordered by `title` while grouping by `category` —
+    // Postgres would have rejected the query at runtime with
+    // "column must appear in GROUP BY". Order by the grouped
+    // column instead.
+    const order = expectOk(parseOrder('category.asc'));
     const having = expectOk(parseHavingClauses('count().gt.5'));
     if (filter === null) throw new Error('filter is null');
     const select = expectOk(parseSelect('category,count()'));
@@ -1237,7 +1243,9 @@ describe('scratch builder KK: cross-feature param interleaving', () => {
   it('KK4 everything at once — sanity check', () => {
     const filter = expectOk(parseFilter('published', 'is.true'));
     const logic = expectOk(parseLogicTree('or', false, '(stock.gt.0,promo.eq.true)'));
-    const order = expectOk(parseOrder('title.asc'));
+    // BUG FIX (#DD3): DISTINCT ON (category) requires the ORDER BY
+    // to start with `category`. Tie-break on `title` afterwards.
+    const order = expectOk(parseOrder('category.asc,title.asc'));
     const select = expectOk(parseSelect('id,title,category'));
     if (filter === null) throw new Error('filter is null');
     const built = expectOk(

@@ -82,6 +82,13 @@ export interface PlanEmbedsInput {
   /** Root-level order terms — used to validate related-order references. */
   readonly rootOrder: readonly OrderTerm[];
   readonly schema: SchemaCache;
+  /**
+   * Maximum embed nesting depth. When omitted, falls back to the
+   * compiled-in `MAX_EMBED_DEPTH` default. Wired through
+   * `limits.maxEmbedDepth` in the runtime config so operators can
+   * raise / lower the cap without a rebuild (bug #EE7).
+   */
+  readonly maxEmbedDepth?: number;
 }
 
 // ----- Planner ----------------------------------------------------------
@@ -103,12 +110,27 @@ export function planEmbeds(
   const rootFieldSelect: SelectItem[] = [];
   const embeds: EmbedNode[] = [];
 
+  // BUG FIX (#EE1): track every embed-path key visited during
+  // planning so we can reject orphan query params that target an
+  // embed the user never actually selected. Without this check,
+  // `?posts.title=eq.Hello` silently disappeared when there was no
+  // `posts` embed on the request, which is a silent contract
+  // violation — the user's filter did nothing.
+  const visitedPathKeys = new Set<string>();
+
   for (const item of input.rootSelect) {
     if (item.type === 'field') {
       rootFieldSelect.push(item);
       continue;
     }
-    const embedResult = resolveEmbed(item, input.rootTable, [], input, 1);
+    const embedResult = resolveEmbed(
+      item,
+      input.rootTable,
+      [],
+      input,
+      1,
+      visitedPathKeys,
+    );
     if (!embedResult.ok) return embedResult;
     embeds.push(embedResult.value);
   }
@@ -118,9 +140,36 @@ export function planEmbeds(
   // parent by them is meaningless — so reject with PGRST108.
   for (const term of input.rootOrder) {
     if (term.relation === undefined) continue;
-    const match =
-      embeds.find((e) => e.alias === term.relation) ??
-      embeds.find((e) => e.child.target.name === term.relation);
+    // Prefer an explicit alias match — it is always unambiguous.
+    // Only fall back to the child-table-name match when no alias
+    // matches, and when there is exactly one such embed.
+    //
+    // BUG FIX (#FF4): the old resolver took the FIRST embed whose
+    // child table name matched, while the builder's alias map
+    // overwrote with the LAST. `select=a:authors(id),b:authors(name)&order=authors(name).desc`
+    // therefore validated against embed `a` and rendered against
+    // embed `b`. Refuse the ambiguity explicitly.
+    const aliasMatches = embeds.filter((e) => e.alias === term.relation);
+    let match: EmbedNode | undefined;
+    if (aliasMatches.length === 1) {
+      match = aliasMatches[0];
+    } else if (aliasMatches.length === 0) {
+      const tableMatches = embeds.filter(
+        (e) => e.child.target.name === term.relation,
+      );
+      if (tableMatches.length > 1) {
+        // BUG FIX (#HH10): the old code emitted PGRST201 here, but
+        // that code is reserved for "ambiguous RPC routine" in this
+        // codebase. Relationship ambiguity is PGRST200, which is
+        // what PostgREST itself uses.
+        return err(
+          schemaErrors.ambiguousRelationship(
+            `order refers to "${term.relation}" which is ambiguous — ${tableMatches.length} embeds share that relation name. Disambiguate by using the explicit alias (e.g. \`alias:relation(...)\`) and referring to it by alias in ORDER BY.`,
+          ),
+        );
+      }
+      match = tableMatches[0];
+    }
     if (!match) {
       return err(
         parseErrors.queryParam(
@@ -138,6 +187,72 @@ export function planEmbeds(
         httpStatus: 400,
       });
     }
+    // BUG FIX (#EE4): the planner used to check only that the embed
+    // exists. The ORDERED COLUMN itself was never validated against
+    // the child table, so `?order=authors(bogus).desc` passed
+    // planning and became a runtime SQL error. Do the column lookup
+    // here now that we know which embed the term refers to.
+    if (term.field.name === '*') {
+      return err(
+        parseErrors.queryParam(
+          'order',
+          'cannot order by wildcard "*"',
+        ),
+      );
+    }
+    const childTable = findTable(input.schema, match.child.target);
+    if (childTable && !findColumn(childTable, term.field.name)) {
+      return err(
+        schemaErrors.columnNotFound(
+          term.field.name,
+          `${childTable.schema}.${childTable.name}`,
+          null,
+        ),
+      );
+    }
+  }
+
+  // BUG FIX (#EE1): every non-root filter / logic / order / range
+  // path MUST correspond to an embed that exists on this request.
+  // Orphans are PGRST108.
+  const checkOrphan = (path: readonly string[], kind: string): Result<null, CloudRestError> => {
+    if (path.length === 0) return ok(null);
+    const key = path.join('\0');
+    if (visitedPathKeys.has(key)) return ok(null);
+    return err({
+      code: 'PGRST108',
+      message: `"${path.join('.')}" refers to an embedded relation that is not part of the select (${kind})`,
+      details: `Add "${path.join('.')}" to the select clause or remove the "${path.join('.')}.${kind}" parameter`,
+      hint: null,
+      httpStatus: 400,
+    });
+  };
+  for (const [p] of input.filtersNotRoot) {
+    const r = checkOrphan(p, 'filter');
+    if (!r.ok) return r;
+  }
+  for (const [p] of input.logicNotRoot) {
+    const r = checkOrphan(p, 'logic');
+    if (!r.ok) return r;
+  }
+  for (const [p] of input.orderNotRoot) {
+    const r = checkOrphan(p, 'order');
+    if (!r.ok) return r;
+  }
+  for (const key of input.ranges.keys()) {
+    // Range keys use `\0` as the separator; key `"limit"` is the
+    // root range (no embed path) and is always consumed by the
+    // caller of planRead, not planEmbeds.
+    if (key === 'limit' || key === '') continue;
+    if (visitedPathKeys.has(key)) continue;
+    const path = key.split('\0');
+    return err({
+      code: 'PGRST108',
+      message: `"${path.join('.')}" refers to an embedded relation that is not part of the select (range)`,
+      details: `Add "${path.join('.')}" to the select clause or remove the "${path.join('.')}.limit"/".offset" parameter`,
+      hint: null,
+      httpStatus: 400,
+    });
   }
 
   return ok({ embeds, rootFieldSelect });
@@ -151,11 +266,18 @@ function resolveEmbed(
   pathPrefix: readonly string[],
   input: PlanEmbedsInput,
   depth: number,
+  visitedPathKeys: Set<string>,
 ): Result<EmbedNode, CloudRestError> {
-  if (depth > MAX_EMBED_DEPTH) {
+  // BUG FIX (#EE7): the cap used to be a hard-coded 8 — the
+  // runtime `MAX_EMBED_DEPTH` / `limits.maxEmbedDepth` config was
+  // ignored. `PlanEmbedsInput.maxEmbedDepth` is now threaded from
+  // the config load path (see plan-read.ts → planEmbeds) so a
+  // deployment can loosen or tighten the cap without a rebuild.
+  const maxDepth = input.maxEmbedDepth ?? MAX_EMBED_DEPTH;
+  if (depth > maxDepth) {
     return err({
       code: 'PGRST125',
-      message: `Embedding depth exceeds maximum of ${MAX_EMBED_DEPTH} levels`,
+      message: `Embedding depth exceeds maximum of ${maxDepth} levels`,
       details: `Path: ${pathPrefix.join(' → ')}`,
       hint: 'Reduce the nesting depth of your select parameter, or fetch nested resources in a separate request.',
       httpStatus: 400,
@@ -214,6 +336,19 @@ function resolveEmbed(
   }
 
   const rel = resolution.relationship;
+  // BUG FIX (#HH11): the builder refuses to emit SQL for M2M embeds
+  // (`renderJoinCondition` returns `notImplemented`), but the
+  // planner used to walk right past them and only the builder would
+  // fail. Surface the unsupported-feature error from the planner
+  // layer where the request is still being validated, so it never
+  // reaches SQL composition.
+  if (rel.cardinality.type === 'M2M') {
+    return err(
+      parseErrors.notImplemented(
+        `many-to-many embed on "${embedName}" is not yet supported — use a spread embed or an explicit junction-table query`,
+      ),
+    );
+  }
   const isToOne = relationshipIsToOne(rel);
   const childTable = findTable(input.schema, rel.foreignTable);
   if (!childTable) {
@@ -228,8 +363,16 @@ function resolveEmbed(
     );
   }
 
-  const childPath: readonly string[] = [...pathPrefix, embedName];
+  // BUG FIX (#EE1): the path segment the user writes in
+  // `?<path>.<col>=eq.X` is the ALIAS the user sees, not the
+  // underlying relation name. For `select=id,author:authors(name)&author.name=eq.Ada`,
+  // the param path is `['author']` but the relation name is
+  // `authors`. Walk with the alias so the match succeeds — and
+  // mark this key visited so the orphan check at the end of
+  // planEmbeds knows the user did reach this embed.
+  const childPath: readonly string[] = [...pathPrefix, alias];
   const childPathKey = childPath.join('\0');
+  visitedPathKeys.add(childPathKey);
 
   // Child filters / logic / order from query params that target this
   // exact path. Matching is strict: the depth and every segment must
@@ -279,19 +422,28 @@ function resolveEmbed(
   const childEmbeds: EmbedNode[] = [];
   for (const childItem of childSelectItems) {
     if (childItem.type === 'field') {
-      // Validate the column — wildcard and aggregate-only shapes are OK.
-      if (
-        childItem.field.name !== '*' &&
-        childItem.aggregateFunction === undefined &&
-        !findColumn(childTable, childItem.field.name)
-      ) {
-        return err(
-          schemaErrors.columnNotFound(
-            childItem.field.name,
-            `${childTable.schema}.${childTable.name}`,
-            null,
-          ),
-        );
+      // BUG FIX (#EE2): the old check early-exited for aggregate
+      // fields (`childItem.aggregateFunction === undefined`), so
+      // `reviews(avg(nope))` planned cleanly and only blew up at
+      // the DB. Validate the column for BOTH plain and aggregate
+      // fields — the only shapes that are legitimately unchecked
+      // are the bare wildcard (`*`) and the `count(*)` form
+      // (aggregateFunction === 'count' && field.name === '*').
+      const fieldName = childItem.field.name;
+      const isBareWildcard =
+        fieldName === '*' && childItem.aggregateFunction === undefined;
+      const isCountStar =
+        childItem.aggregateFunction === 'count' && fieldName === '*';
+      if (!isBareWildcard && !isCountStar) {
+        if (!findColumn(childTable, fieldName)) {
+          return err(
+            schemaErrors.columnNotFound(
+              fieldName,
+              `${childTable.schema}.${childTable.name}`,
+              null,
+            ),
+          );
+        }
       }
       childFieldSelect.push(childItem);
       continue;
@@ -302,6 +454,7 @@ function resolveEmbed(
       childPath,
       input,
       depth + 1,
+      visitedPathKeys,
     );
     if (!nested.ok) return nested;
     childEmbeds.push(nested.value);
@@ -317,8 +470,85 @@ function resolveEmbed(
     if (!check.ok) return check;
   }
   for (const term of childOrder) {
-    if (term.relation !== undefined) continue; // deeper relation — only validated at its own depth
-    if (term.field.name !== '*' && !findColumn(childTable, term.field.name)) {
+    // BUG FIX (#HH8): the old loop silently skipped any term with a
+    // `relation` prefix, saying "deeper relation — only validated
+    // at its own depth". But there IS no later depth — these are
+    // root-level child orders addressed from the query-param path,
+    // and the builder's child-order renderer has no embed-alias
+    // map. Validate them here against the embed subtree we have
+    // just planned so the user sees a PGRST108 at plan time
+    // instead of an opaque builder error at render time.
+    if (term.relation !== undefined) {
+      // Prefer the explicit alias match; fall back to the nested
+      // child-table name only when exactly one embed matches —
+      // same disambiguation rule as root related order.
+      const aliasMatches = childEmbeds.filter(
+        (e) => e.alias === term.relation,
+      );
+      let match: EmbedNode | undefined;
+      if (aliasMatches.length === 1) {
+        match = aliasMatches[0];
+      } else if (aliasMatches.length === 0) {
+        const tableMatches = childEmbeds.filter(
+          (e) => e.child.target.name === term.relation,
+        );
+        if (tableMatches.length > 1) {
+          return err(
+            schemaErrors.ambiguousRelationship(
+              `order refers to "${term.relation}" which is ambiguous inside embed "${embedName}". Disambiguate by using the explicit alias (e.g. \`alias:relation(...)\`) and referring to it by alias in ORDER BY.`,
+            ),
+          );
+        }
+        match = tableMatches[0];
+      }
+      if (!match) {
+        return err(
+          parseErrors.queryParam(
+            'order',
+            `order inside embed "${embedName}" refers to "${term.relation}" which is not a nested embedded relation on this request`,
+          ),
+        );
+      }
+      if (!match.isToOne) {
+        return err({
+          code: 'PGRST108',
+          message: `Ordering by "${term.relation}" inside embed "${embedName}" is not allowed — "${term.relation}" is a to-many embed`,
+          details: 'Only to-one relationships can be used as ORDER BY targets',
+          hint: null,
+          httpStatus: 400,
+        });
+      }
+      if (term.field.name === '*') {
+        return err(
+          parseErrors.queryParam(
+            'order',
+            `cannot order by wildcard "*" in embed "${embedName}"`,
+          ),
+        );
+      }
+      const nestedTable = findTable(input.schema, match.child.target);
+      if (nestedTable && !findColumn(nestedTable, term.field.name)) {
+        return err(
+          schemaErrors.columnNotFound(
+            term.field.name,
+            `${nestedTable.schema}.${nestedTable.name}`,
+            null,
+          ),
+        );
+      }
+      continue;
+    }
+    // BUG FIX (#DD5): child `?rel.order=*.asc` used to slip through
+    // the same wildcard-skip hole as root order. Reject it here.
+    if (term.field.name === '*') {
+      return err(
+        parseErrors.queryParam(
+          'order',
+          `cannot order by wildcard "*" in embed "${embedName}"`,
+        ),
+      );
+    }
+    if (!findColumn(childTable, term.field.name)) {
       return err(
         schemaErrors.columnNotFound(
           term.field.name,
@@ -378,7 +608,16 @@ function validateFilterColumn(
   filter: Filter,
 ): Result<null, CloudRestError> {
   const name = filter.field.name;
-  if (name === '*') return ok(null);
+  // BUG FIX (#HH9): wildcard is not a filter column. See the
+  // matching fix in plan-read.ts:validateFilterColumn.
+  if (name === '*') {
+    return err(
+      parseErrors.queryParam(
+        'filter',
+        'wildcard "*" is not a valid filter column',
+      ),
+    );
+  }
   if (!findColumn(table, name)) {
     return err(
       schemaErrors.columnNotFound(

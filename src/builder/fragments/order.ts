@@ -27,6 +27,19 @@ export function renderOrderTerm(
   builder: SqlBuilder,
   embedAliases?: EmbedAliasMap,
 ): Result<string, CloudRestError> {
+  // BUG FIX (#DD5): the wildcard `*` is not a legal ORDER BY target.
+  // `renderField` would happily emit `"schema"."table".*` which is
+  // not valid SQL in an ORDER BY. The planner now rejects this too,
+  // but keep a defensive guard so a malformed plan from a non-
+  // parser source cannot reach the driver.
+  if (term.field.name === '*') {
+    return err(
+      parseErrors.queryParam(
+        'order',
+        'cannot order by wildcard "*"',
+      ),
+    );
+  }
   let fieldSql: string;
   if (term.relation) {
     // BUG FIX (#CC2): a related order term must reference the

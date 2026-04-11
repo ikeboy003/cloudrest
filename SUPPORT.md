@@ -39,4 +39,4 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) first, then [CONTRIBUTING.md](CONTRIBUTI
 
 ## I need commercial support
 
-CloudREST is licensed under [FSL-1.1-ALv2](LICENSE). For commercial deployments, priority support, or a license exception for a use case the FSL doesn't permit, contact security@divitiae.holdings.
+CloudREST is licensed under [AGPL-3.0-only](LICENSE). Commercial use is allowed under the AGPL. For paid support, deployment help, priority response, or a commercial license without AGPL obligations, see [COMMERCIAL.md](COMMERCIAL.md).
