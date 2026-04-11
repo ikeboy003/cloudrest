@@ -115,6 +115,19 @@ export function parseSelect(raw: string): Result<readonly SelectItem[], CloudRes
           hint = undefined;
         }
 
+        // BUG FIX (#AA13): `author!inner!left` is nonsense — `inner`
+        // is a join type, not an FK hint. If the first `!`-segment is
+        // a join-type word and a second `!`-segment is also present,
+        // that is a double join-type declaration and an error.
+        if (joinType && (hint === 'inner' || hint === 'left')) {
+          return err(
+            parseErrors.queryParam(
+              'select',
+              `invalid embed: double join-type in "${relPart}"`,
+            ),
+          );
+        }
+
         let innerSelect: readonly SelectItem[] | undefined;
         let embedLimit: number | undefined;
         let embedOffset: number | undefined;
@@ -152,6 +165,16 @@ export function parseSelect(raw: string): Result<readonly SelectItem[], CloudRes
               );
             }
             if (trimmedInner.startsWith('limit=')) {
+              // BUG FIX (#AA15): duplicate inline `limit=` silently
+              // last-wins used to be surprising. Pin deliberately.
+              if (embedLimit !== undefined) {
+                return err(
+                  parseErrors.queryParam(
+                    'select',
+                    `duplicate embed "limit=" in "${working}"`,
+                  ),
+                );
+              }
               const n = strictParseNonNegInt(trimmedInner.slice(6));
               if (n === null) {
                 return err(
@@ -163,6 +186,15 @@ export function parseSelect(raw: string): Result<readonly SelectItem[], CloudRes
               }
               embedLimit = n;
             } else if (trimmedInner.startsWith('offset=')) {
+              // BUG FIX (#AA15): same duplicate check for `offset=`.
+              if (embedOffset !== undefined) {
+                return err(
+                  parseErrors.queryParam(
+                    'select',
+                    `duplicate embed "offset=" in "${working}"`,
+                  ),
+                );
+              }
               const n = strictParseNonNegInt(trimmedInner.slice(7));
               if (n === null) {
                 return err(
@@ -174,7 +206,28 @@ export function parseSelect(raw: string): Result<readonly SelectItem[], CloudRes
               }
               embedOffset = n;
             } else if (trimmedInner.startsWith('order=')) {
-              const orderResult = parseOrder(trimmedInner.slice(6));
+              // BUG FIX (#AA14): `order=` with an empty body used to
+              // parse as `embedOrder: []`, which downstream treats as
+              // "order by nothing". Reject the empty shape.
+              // BUG FIX (#AA15): reject duplicate inline `order=` too.
+              if (embedOrder !== undefined) {
+                return err(
+                  parseErrors.queryParam(
+                    'select',
+                    `duplicate embed "order=" in "${working}"`,
+                  ),
+                );
+              }
+              const orderBody = trimmedInner.slice(6);
+              if (orderBody === '') {
+                return err(
+                  parseErrors.queryParam(
+                    'select',
+                    `empty embed "order=" in "${working}"`,
+                  ),
+                );
+              }
+              const orderResult = parseOrder(orderBody);
               if (!orderResult.ok) return orderResult;
               embedOrder = orderResult.value;
             } else {
@@ -604,14 +657,72 @@ function skipQuotedRegion(str: string, start: number, quoteChar: string): number
  *   - identifier with precision:    `numeric(10,2)`, `varchar(255)`
  *   - identifier with array marker: `int[]`, `text[]`
  *   - with a schema prefix:         `public.my_type`
+ *   - multi-word allowlisted types: `double precision`, `bit varying`,
+ *     `character varying`, `timestamp with time zone`,
+ *     `timestamp without time zone`, `time with time zone`,
+ *     `time without time zone`
  *
- * Rejects semicolons, spaces, comments, newlines, and anything else
- * that could pollute generated SQL.
+ * BUG FIX (#AA20): the old regex was identifier-only and rejected
+ * every multi-word PostgreSQL type. Accept the canonical multi-word
+ * forms explicitly.
+ *
+ * Rejects semicolons, spaces (outside the multi-word allowlist),
+ * comments, newlines, and anything else that could pollute generated
+ * SQL.
  */
 export function isValidCastName(raw: string): boolean {
+  if (MULTI_WORD_CASTS.has(raw.toLowerCase())) return true;
   return /^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?(?:\(\d+(?:,\d+)?\))?(?:\[\])?$/.test(
     raw,
   );
+}
+
+const MULTI_WORD_CASTS: ReadonlySet<string> = new Set([
+  'double precision',
+  'bit varying',
+  'character varying',
+  'timestamp with time zone',
+  'timestamp without time zone',
+  'time with time zone',
+  'time without time zone',
+]);
+
+/**
+ * True if `raw` contains a comma at the top-level scope (outside any
+ * quoted region), OR has unbalanced parentheses.
+ *
+ * Used by tryParseCanonicalAggregateField so that valid quoted JSON
+ * keys containing commas or parens (`data->>"a,b"`, `data->>"a)b"`)
+ * are not falsely rejected as multi-argument aggregates.
+ */
+function hasUnquotedCommaOrUnbalancedParens(raw: string): boolean {
+  let depth = 0;
+  let i = 0;
+  while (i < raw.length) {
+    const ch = raw[i]!;
+    if (ch === "'") {
+      i = skipQuotedRegion(raw, i, "'");
+      continue;
+    }
+    if (ch === '"') {
+      i = skipQuotedRegion(raw, i, '"');
+      continue;
+    }
+    if (ch === '(') {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === ')') {
+      depth -= 1;
+      if (depth < 0) return true;
+      i += 1;
+      continue;
+    }
+    if (ch === ',' && depth === 0) return true;
+    i += 1;
+  }
+  return depth !== 0;
 }
 
 /**

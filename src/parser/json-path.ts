@@ -134,6 +134,24 @@ export function parseField(raw: string): Result<Field, CloudRestError> {
 
     // BUG FIX (#17): quoted numeric keys remain keys.
     const isUnquotedInteger = !wasQuoted && /^\d+$/.test(rawOperand);
+    // BUG FIX (#AA18): an unquoted JSON path key must be a plain SQL
+    // identifier (or a bare non-negative integer for array indexes).
+    // The old grammar accepted anything scanArrowSegments didn't stop
+    // at, so `data->a b`, `data->a;DROP`, and `data->a)bad` all
+    // parsed as valid keys. The builder binds keys safely, but the
+    // grammar should still reject shapes that could only have been
+    // typos or injection attempts — users wanting arbitrary keys
+    // should quote them.
+    if (!wasQuoted && !isUnquotedInteger) {
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(rawOperand)) {
+        return err(
+          parseErrors.queryParam(
+            'field',
+            `invalid unquoted JSON key "${rawOperand}" in "${raw}" (quote it or use a plain identifier)`,
+          ),
+        );
+      }
+    }
     const operand = isUnquotedInteger
       ? ({ type: 'idx', value: rawOperand } as const)
       : ({ type: 'key', value: unquoted } as const);

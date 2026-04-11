@@ -95,6 +95,18 @@ export function parseOpExpr(
     );
   }
   if (splitResult === -1) {
+    // BUG FIX (#AA10): once the value-side `not.` has been consumed,
+    // the remainder MUST parse as an operator. `col=not.` (nothing
+    // after) and `col=not.EQ.1` (unknown op) used to silently become
+    // RPC params. Anything short of a valid op is an error.
+    if (negated) {
+      return err(
+        parseErrors.queryParam(
+          'filter',
+          `"not." prefix requires a valid operator after it in "${rawValue}"`,
+        ),
+      );
+    }
     // No `<op>.<value>` separator at all -> this can never be a filter.
     // Return null so the dispatcher treats the pair as an RPC parameter.
     // The old code used to run `tryParseOperation` here which would
@@ -110,13 +122,35 @@ export function parseOpExpr(
   if (opStr === 'geo') {
     const geo = parseGeoOperation(val);
     if (!geo.ok) return geo;
-    if (geo.value === null) return ok(null);
+    if (geo.value === null) {
+      if (negated) {
+        return err(
+          parseErrors.queryParam(
+            'filter',
+            `"not." prefix requires a valid operator after it in "${rawValue}"`,
+          ),
+        );
+      }
+      return ok(null);
+    }
     return ok({ negated, operation: geo.value });
   }
 
   const operation = tryParseOperation(opStr, val);
   if (!operation.ok) return operation;
-  if (operation.value === null) return ok(null);
+  if (operation.value === null) {
+    // BUG FIX (#AA10): once `not.` was consumed, failing to recognize
+    // the body is a parse error, not an RPC fallthrough.
+    if (negated) {
+      return err(
+        parseErrors.queryParam(
+          'filter',
+          `"not." prefix requires a valid operator after it in "${rawValue}"`,
+        ),
+      );
+    }
+    return ok(null);
+  }
   return ok({ negated, operation: operation.value });
 }
 
@@ -198,6 +232,14 @@ function tryParseOperation(
         ),
       );
     }
+    // BUG FIX (#AA8): `fts(english).` used to parse as an FTS query
+    // with an empty search string. An empty FTS query is never
+    // meaningful at the SQL level — reject it here.
+    if (val === '') {
+      return err(
+        parseErrors.queryParam(opStr, 'FTS query cannot be empty'),
+      );
+    }
     return ok({
       type: 'fts',
       operator: FTS_OPS[base.toLowerCase()]!,
@@ -273,19 +315,30 @@ function tryParseOperation(
 
   const lowerBase = base.toLowerCase();
   if (lowerBase in FTS_OPS) {
+    // BUG FIX (#AA8): empty FTS value must error (parity with the
+    // FTS-with-language branch above).
+    if (val === '') {
+      return err(
+        parseErrors.queryParam(base, 'FTS query cannot be empty'),
+      );
+    }
     return ok({ type: 'fts', operator: FTS_OPS[lowerBase]!, value: val });
   }
 
-  // COMPAT: a token composed of lowercase letters (length >= 2) looks
-  // like an operator. If we didn't recognize it, it's a typo, not an
-  // RPC param. Produce a helpful error instead of silently treating
-  // the whole key=value as an RPC parameter.
+  // COMPAT: a token composed of letters (length >= 2) looks like an
+  // operator. If we didn't recognize it, it's a typo, not an RPC
+  // param. Produce a helpful error instead of silently treating the
+  // whole key=value as an RPC parameter.
   //
   // BUG FIX (#W): the old upper bound `{2,12}` was arbitrary and left
   // a hole for long typos (`reallyreallylong.val`). Drop the upper
-  // bound — any purely-lowercase op-shaped token that failed every
-  // branch above is a parse error.
-  if (/^[a-z]{2,}$/.test(base)) {
+  // bound.
+  //
+  // BUG FIX (#AA9): the old regex `^[a-z]{2,}$` only caught purely
+  // lowercase names. `id=EQ.1` and `id=eQ.1` both fell through as
+  // RPC params — brutal UX on relation reads. Match case-insensitively
+  // so that any letter-only typo of any case is surfaced as an error.
+  if (/^[a-zA-Z]{2,}$/.test(base)) {
     return err(parseErrors.queryParam(base, `unknown operator "${base}"`));
   }
 
@@ -458,7 +511,12 @@ function looksLikeGeoJsonOrWkt(raw: string): boolean {
 
 /**
  * Split `<name>(<args>)` into the operator name and raw args string.
- * Tracks paren depth so nested parens (WKT geometries) are preserved.
+ * Tracks paren depth AND quote state so nested parens (WKT) and
+ * quoted JSON string values (`{"name":"a)b"}`) are preserved.
+ *
+ * BUG FIX (#AA7): the old scan was paren-only, so a `)` inside a
+ * JSON string value would close the geo op prematurely.
+ *
  * Returns null if the shape doesn't match.
  */
 function splitGeoOpAndArgs(val: string): { name: string; args: string } | null {
@@ -468,48 +526,103 @@ function splitGeoOpAndArgs(val: string): { name: string; args: string } | null {
   if (!/^[a-z_][a-z0-9_]*$/i.test(name)) return null;
 
   let depth = 0;
-  for (let i = parenStart; i < val.length; i++) {
+  let i = parenStart;
+  while (i < val.length) {
     const ch = val[i]!;
+    if (ch === '"') {
+      i = skipGeoQuoted(val, i, '"');
+      continue;
+    }
+    if (ch === "'") {
+      i = skipGeoQuoted(val, i, "'");
+      continue;
+    }
     if (ch === '(') {
       depth += 1;
-    } else if (ch === ')') {
+      i += 1;
+      continue;
+    }
+    if (ch === ')') {
       depth -= 1;
       if (depth === 0) {
         // Must be the last character — no trailing junk.
         if (i !== val.length - 1) return null;
         return { name, args: val.slice(parenStart + 1, i) };
       }
+      i += 1;
+      continue;
     }
+    i += 1;
   }
   return null;
 }
 
 /**
  * Split a geo operation's args string on top-level commas, respecting
- * nested parens. Used to separate lat/lng/meters style arguments even
- * when one of them contains a complex WKT expression.
+ * nested parens and quoted JSON string regions. Used to separate
+ * lat/lng/meters style arguments even when one of them contains a
+ * complex WKT expression or JSON payload.
+ *
+ * BUG FIX (#AA7): the old split was paren-aware only.
  */
 function splitGeoCommaArgs(args: string): string[] {
   const result: string[] = [];
   let depth = 0;
   let current = '';
-  for (let i = 0; i < args.length; i++) {
+  let i = 0;
+  while (i < args.length) {
     const ch = args[i]!;
+    if (ch === '"' || ch === "'") {
+      const end = skipGeoQuoted(args, i, ch);
+      current += args.slice(i, end);
+      i = end;
+      continue;
+    }
     if (ch === '(') {
       depth += 1;
       current += ch;
-    } else if (ch === ')') {
+      i += 1;
+      continue;
+    }
+    if (ch === ')') {
       depth -= 1;
       current += ch;
-    } else if (ch === ',' && depth === 0) {
+      i += 1;
+      continue;
+    }
+    if (ch === ',' && depth === 0) {
       result.push(current);
       current = '';
-    } else {
-      current += ch;
+      i += 1;
+      continue;
     }
+    current += ch;
+    i += 1;
   }
   if (current !== '' || result.length > 0) result.push(current);
   return result;
+}
+
+/**
+ * Walk past a JSON/WKT quoted region starting at `start`. Returns the
+ * index one past the closing quote, or `str.length` if the quote
+ * never closes. JSON does not use doubled-quote escape, but it does
+ * use `\"` — honor that.
+ */
+function skipGeoQuoted(str: string, start: number, quoteChar: string): number {
+  let i = start + 1;
+  while (i < str.length) {
+    const ch = str[i]!;
+    if (ch === '\\' && i + 1 < str.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === quoteChar) {
+      return i + 1;
+    }
+    i += 1;
+  }
+  return str.length;
 }
 
 /**

@@ -29,6 +29,14 @@ export function parseDistinct(raw: string): Result<DistinctColumns, CloudRestErr
         parseErrors.queryParam('distinct', 'empty column (stray comma)'),
       );
     }
+    // BUG FIX (#AA19): entries must be plain SQL identifiers. The old
+    // check only rejected empties, so `distinct=*`, `distinct=a b`,
+    // `distinct=data->key`, and `distinct=a;DROP` slipped through.
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(col)) {
+      return err(
+        parseErrors.queryParam('distinct', `invalid column name "${col}"`),
+      );
+    }
   }
   return ok(trimmed);
 }

@@ -136,6 +136,18 @@ export function parseQueryParams(
             parseErrors.queryParam('columns', 'empty column (stray comma)'),
           );
         }
+        // BUG FIX (#AA19): columns must be plain SQL identifiers.
+        // The old check only rejected empties, so `columns=a b`,
+        // `columns=a;DROP`, `columns=data->key`, and `columns=*` all
+        // slipped through into the mutation handler.
+        if (!isPlainIdentifier(col)) {
+          return err(
+            parseErrors.queryParam(
+              'columns',
+              `invalid column name "${col}"`,
+            ),
+          );
+        }
       }
       columns = new Set(trimmedCols);
       continue;
@@ -155,6 +167,16 @@ export function parseQueryParams(
         if (col === '') {
           return err(
             parseErrors.queryParam('on_conflict', 'empty column (stray comma)'),
+          );
+        }
+        // BUG FIX (#AA19): on_conflict entries must be plain SQL
+        // identifiers — see `columns` above.
+        if (!isPlainIdentifier(col)) {
+          return err(
+            parseErrors.queryParam(
+              'on_conflict',
+              `invalid column name "${col}"`,
+            ),
           );
         }
       }
@@ -291,6 +313,18 @@ export function parseQueryParams(
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join('&');
 
+  // BUG FIX (#AA12): `vector.column=embedding&vector.op=cosine` without
+  // a `vector=...` value used to silently drop both side params, same
+  // smell as the old "reserved key disappears" bug. Either all vector
+  // inputs are absent, or the primary `vector` value is required.
+  if (vectorValue === null && (vectorColumn !== null || vectorOp !== null)) {
+    return err(
+      parseErrors.queryParam(
+        'vector',
+        '"vector.column" / "vector.op" require a "vector" value',
+      ),
+    );
+  }
   const vector =
     vectorValue === null
       ? null
@@ -336,6 +370,9 @@ function validateEmbedPath(
       parseErrors.queryParam(key, `missing embed path in "${key}"`),
     );
   }
+  // BUG FIX (#AA11): segments must be plain SQL identifiers. The old
+  // check only caught empties, so `bad-name.order=id.asc`,
+  // `bad;name.and=(...)`, and `bad-name.limit=1` all slipped through.
   for (const segment of segments) {
     if (segment === '') {
       return err(
@@ -345,6 +382,23 @@ function validateEmbedPath(
         ),
       );
     }
+    if (!isPlainIdentifier(segment)) {
+      return err(
+        parseErrors.queryParam(
+          key,
+          `invalid embed path segment "${segment}" in "${key}"`,
+        ),
+      );
+    }
   }
   return ok(null);
+}
+
+/**
+ * True if `raw` is a plain SQL identifier: letters/digits/underscore,
+ * with a non-digit first character. Shared gate for column lists
+ * (columns, on_conflict, distinct) and embed path segments.
+ */
+function isPlainIdentifier(raw: string): boolean {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(raw);
 }

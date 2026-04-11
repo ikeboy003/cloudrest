@@ -6,7 +6,14 @@
 //
 // Stage 6a scope: table resolution, root filter/logic/order column
 // validation, distinct column validation, first-class search/vector/
-// distinct wiring. Embeds and relationships land in stage 6b.
+// distinct wiring.
+//
+// Stage 6b extends that to every query-param shape the parser emits:
+//  - embed resolution with relationship lookup, alias/hint, join-type;
+//  - embedded filter/logic/order attached to the right subtree;
+//  - ?search= / ?search.columns= / ?search.language= → SearchPlan;
+//  - ?vector= / ?vector.column= / ?vector.op=   → VectorPlan;
+//  - aggregate column validation (select=avg(rating) requires `rating`).
 
 import { err, ok, type Result } from '../core/result';
 import {
@@ -20,16 +27,21 @@ import type { Preferences } from '../http/preferences';
 import type { MediaTypeId } from '../http/media/types';
 import { ALL_ROWS, type NonnegRange } from '../http/range';
 import type {
+  EmbedPath,
   Filter,
   LogicTree,
   OrderTerm,
   ParsedQueryParams,
+  SelectItem,
 } from '../parser/types';
 import type { SchemaCache } from '../schema/cache';
 import { findTable } from '../schema/cache';
 import type { Table } from '../schema/table';
 import { findColumn } from '../schema/table';
 import type { DistinctPlan, ReadPlan } from './read-plan';
+import { planEmbeds, type EmbedNode } from './embed-plan';
+import { planSearch } from './search';
+import { planVector } from './vector';
 
 export interface PlanReadInput {
   readonly target: QualifiedIdentifier;
@@ -47,6 +59,17 @@ export interface PlanReadInput {
   readonly hasPreRequest: boolean;
   /** `config.database.maxRows`. */
   readonly maxRows: number | null;
+  /**
+   * Raw search params plucked off the URL. The parser owns extraction;
+   * the planner owns validation. Optional — callers that don't care
+   * (e.g. older tests) can omit it and search is simply not planned.
+   */
+  readonly search?: {
+    readonly term: string | null;
+    readonly columns: string | null;
+    readonly language: string | null;
+    readonly includeRank: boolean;
+  };
 }
 
 /**
@@ -64,61 +87,35 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
     );
   }
 
-  // Stage 6a: no embeds yet. Reject anything that needs embed support.
-  if (input.parsed.filtersNotRoot.length > 0) {
-    return err(
-      parseErrors.notImplemented(
-        'embedded filters require embed planning (stage 6b)',
-      ),
-    );
-  }
+  // ----- Root logic / order partitioning ------------------------------
+  const rootLogic = collectRootLogic(input.parsed);
+  const rootOrder = collectRootOrder(input.parsed);
 
-  const rootLogicResult = rootLogicTrees(input.parsed);
-  if (!rootLogicResult.ok) return rootLogicResult;
-
-  // Validate root filter columns.
+  // ----- Root filter / logic column validation ------------------------
   for (const filter of input.parsed.filtersRoot) {
     const check = validateFilterColumn(table, filter);
     if (!check.ok) return check;
   }
-  for (const tree of rootLogicResult.value) {
+  for (const tree of rootLogic) {
     const check = validateLogicColumns(table, tree);
     if (!check.ok) return check;
   }
 
-  // Validate select items and reject embed items.
+  // ----- Root select validation ----------------------------------------
+  // Field items are validated here; relation/spread items are walked by
+  // planEmbeds below. Aggregate fields must reference a real column
+  // (except `count(*)` which is a wildcard).
   for (const item of input.parsed.select) {
-    if (item.type === 'relation' || item.type === 'spread') {
-      return err(
-        parseErrors.notImplemented(
-          'embedded relations require embed planning (stage 6b)',
-        ),
-      );
-    }
-    if (item.aggregateFunction !== undefined) continue; // aggregate-only — no direct column check
-    if (item.field.name === '*') continue;
-    if (!findColumn(table, item.field.name)) {
-      return err(
-        schemaErrors.columnNotFound(
-          item.field.name,
-          `${table.schema}.${table.name}`,
-          suggestColumnName(table, item.field.name),
-        ),
-      );
-    }
+    if (item.type !== 'field') continue;
+    const check = validateSelectFieldItem(table, item);
+    if (!check.ok) return check;
   }
 
-  // Root ORDER BY — no embed-qualified terms at stage 6a.
-  const rootOrderResult = rootOrderTerms(input.parsed);
-  if (!rootOrderResult.ok) return rootOrderResult;
-  for (const term of rootOrderResult.value) {
-    if (term.relation !== undefined) {
-      return err(
-        parseErrors.notImplemented(
-          'related-order requires embed planning (stage 6b)',
-        ),
-      );
-    }
+  // ----- Root ORDER BY column validation -------------------------------
+  // Related-order terms (`order=author(name).desc`) are validated inside
+  // planEmbeds once the embed set is known.
+  for (const term of rootOrder) {
+    if (term.relation !== undefined) continue;
     if (term.field.name !== '*' && !findColumn(table, term.field.name)) {
       return err(
         schemaErrors.columnNotFound(
@@ -130,7 +127,21 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
     }
   }
 
-  // DISTINCT columns — critique IDENTIFIER-5 fix: validate before SQL.
+  // ----- Embeds --------------------------------------------------------
+  const embedResult = planEmbeds({
+    rootTable: table,
+    rootSelect: input.parsed.select,
+    filtersNotRoot: input.parsed.filtersNotRoot,
+    logicNotRoot: collectNonRoot(input.parsed.logic),
+    orderNotRoot: collectNonRootOrder(input.parsed.order),
+    ranges: input.parsed.ranges,
+    rootOrder,
+    schema: input.schema,
+  });
+  if (!embedResult.ok) return embedResult;
+  const { embeds, rootFieldSelect } = embedResult.value;
+
+  // ----- DISTINCT ------------------------------------------------------
   let distinct: DistinctPlan | undefined;
   if (input.parsed.distinct !== null) {
     for (const col of input.parsed.distinct) {
@@ -147,15 +158,44 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
     distinct = { columns: input.parsed.distinct };
   }
 
-  // Effective range: intersect the topLevelRange with maxRows.
+  // ----- Search --------------------------------------------------------
+  const searchResult = planSearch(
+    {
+      term: input.search?.term ?? null,
+      columns: input.search?.columns ?? null,
+      language: input.search?.language ?? null,
+      includeRank: input.search?.includeRank ?? false,
+    },
+    table,
+  );
+  if (!searchResult.ok) return searchResult;
+  const search = searchResult.value ?? undefined;
+
+  // ----- Vector --------------------------------------------------------
+  const rawVector = input.parsed.vector
+    ? {
+        value: input.parsed.vector.value,
+        column: input.parsed.vector.column,
+        op: input.parsed.vector.op,
+      }
+    : null;
+  const vectorResult = planVector(rawVector, table);
+  if (!vectorResult.ok) return vectorResult;
+  const vector = vectorResult.value ?? undefined;
+
+  // ----- Effective range (maxRows clamp) -------------------------------
   const range = clampRangeToMaxRows(input.topLevelRange, input.maxRows);
 
   return ok({
     target: input.target,
-    select: input.parsed.select,
+    // Keep `select` as the parser emitted it when there are no embeds;
+    // otherwise the builder consumes `embeds` for non-field items and
+    // `select` for field items. Feeding the field-only list here avoids
+    // double-processing in the builder.
+    select: embeds.length === 0 ? input.parsed.select : rootFieldSelect,
     filters: input.parsed.filtersRoot,
-    logic: rootLogicResult.value,
-    order: rootOrderResult.value,
+    logic: rootLogic,
+    order: rootOrder,
     range,
     having: input.parsed.having,
     count: input.preferences.preferCount ?? null,
@@ -163,44 +203,72 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
     hasPreRequest: input.hasPreRequest,
     maxRows: input.maxRows,
     distinct,
-    // Stage 6a does not populate search/vector; stage 6b wires the parser.
+    search,
+    vector,
+    embeds,
   });
 }
 
-// ----- Helpers ---------------------------------------------------------
+// ----- Root / non-root partitioning -------------------------------------
 
-function rootLogicTrees(
-  parsed: ParsedQueryParams,
-): Result<readonly LogicTree[], CloudRestError> {
-  const trees: LogicTree[] = [];
+function collectRootLogic(parsed: ParsedQueryParams): readonly LogicTree[] {
+  const out: LogicTree[] = [];
   for (const [path, tree] of parsed.logic) {
-    if (path.length !== 0) {
-      return err(
-        parseErrors.notImplemented(
-          'embedded logic trees require embed planning (stage 6b)',
-        ),
-      );
-    }
-    trees.push(tree);
+    if (path.length === 0) out.push(tree);
   }
-  return ok(trees);
+  return out;
 }
 
-function rootOrderTerms(
-  parsed: ParsedQueryParams,
-): Result<readonly OrderTerm[], CloudRestError> {
-  const terms: OrderTerm[] = [];
+function collectRootOrder(parsed: ParsedQueryParams): readonly OrderTerm[] {
+  const out: OrderTerm[] = [];
   for (const [path, group] of parsed.order) {
-    if (path.length !== 0) {
-      return err(
-        parseErrors.notImplemented(
-          'embedded order terms require embed planning (stage 6b)',
-        ),
-      );
-    }
-    for (const term of group) terms.push(term);
+    if (path.length !== 0) continue;
+    for (const term of group) out.push(term);
   }
-  return ok(terms);
+  return out;
+}
+
+function collectNonRoot(
+  logic: readonly (readonly [EmbedPath, LogicTree])[],
+): readonly (readonly [EmbedPath, LogicTree])[] {
+  const out: (readonly [EmbedPath, LogicTree])[] = [];
+  for (const entry of logic) {
+    if (entry[0].length > 0) out.push(entry);
+  }
+  return out;
+}
+
+function collectNonRootOrder(
+  order: readonly (readonly [EmbedPath, readonly OrderTerm[]])[],
+): readonly (readonly [EmbedPath, readonly OrderTerm[]])[] {
+  const out: (readonly [EmbedPath, readonly OrderTerm[]])[] = [];
+  for (const entry of order) {
+    if (entry[0].length > 0) out.push(entry);
+  }
+  return out;
+}
+
+// ----- Column validation helpers ---------------------------------------
+
+function validateSelectFieldItem(
+  table: Table,
+  item: Extract<SelectItem, { type: 'field' }>,
+): Result<null, CloudRestError> {
+  const name = item.field.name;
+  if (name === '*') return ok(null);
+  // `count(*)` is expressed as an aggregate field with field.name='*'.
+  // Any other aggregate must reference a real column.
+  if (item.aggregateFunction !== undefined && name === '*') return ok(null);
+  if (!findColumn(table, name)) {
+    return err(
+      schemaErrors.columnNotFound(
+        name,
+        `${table.schema}.${table.name}`,
+        suggestColumnName(table, name),
+      ),
+    );
+  }
+  return ok(null);
 }
 
 function validateFilterColumn(
@@ -233,6 +301,8 @@ function validateLogicColumns(
   return ok(null);
 }
 
+// ----- Range clamp ------------------------------------------------------
+
 /**
  * Intersect a range with `config.database.maxRows`. Null = unlimited.
  *
@@ -248,6 +318,8 @@ function clampRangeToMaxRows(
   if (range.limit === null) return { offset: range.offset, limit: maxRows };
   return { offset: range.offset, limit: Math.min(range.limit, maxRows) };
 }
+
+// ----- Suggestions ------------------------------------------------------
 
 function suggestTableName(
   schema: SchemaCache,
@@ -266,3 +338,7 @@ function suggestColumnName(table: Table, name: string): string | null {
 
 // Re-export ALL_ROWS for handlers that need it as a default.
 export { ALL_ROWS };
+
+// Re-export EmbedNode for downstream consumers that only want the root
+// type barrel.
+export type { EmbedNode };

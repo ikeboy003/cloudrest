@@ -7,6 +7,11 @@
 import type { SchemaCache } from '../../src/schema/cache';
 import type { Column, Table } from '../../src/schema/table';
 import { identifierKey } from '../../src/schema/cache';
+import type {
+  Relationship,
+  RelationshipsMap,
+} from '../../src/schema/relationship';
+import { relationshipKey } from '../../src/schema/relationship';
 
 export interface FixtureColumn {
   readonly name: string;
@@ -57,9 +62,13 @@ export function makeTable(spec: FixtureTable): Table {
 }
 
 /**
- * Build a SchemaCache containing the given tables.
+ * Build a SchemaCache containing the given tables and (optionally) a
+ * pre-built relationship list.
  */
-export function makeSchema(tables: readonly FixtureTable[]): SchemaCache {
+export function makeSchema(
+  tables: readonly FixtureTable[],
+  relationships: readonly Relationship[] = [],
+): SchemaCache {
   const map = new Map<string, Table>();
   for (const spec of tables) {
     const table = makeTable(spec);
@@ -67,9 +76,23 @@ export function makeSchema(tables: readonly FixtureTable[]): SchemaCache {
   }
   return {
     tables: map,
+    relationships: buildRelationshipsMap(relationships),
     loadedAt: 0,
     version: 1,
   };
+}
+
+function buildRelationshipsMap(
+  rels: readonly Relationship[],
+): RelationshipsMap {
+  const map = new Map<string, Relationship[]>();
+  for (const r of rels) {
+    const key = relationshipKey(r.table, r.foreignTable.schema);
+    const existing = map.get(key);
+    if (existing) existing.push(r);
+    else map.set(key, [r]);
+  }
+  return map;
 }
 
 /**
@@ -86,6 +109,140 @@ export const BOOKS_SCHEMA: SchemaCache = makeSchema([
       { name: 'price', type: 'numeric' },
       { name: 'category', type: 'text' },
       { name: 'data', type: 'jsonb' },
+      { name: 'embedding', type: 'vector' },
     ],
   },
 ]);
+
+// ----- Relationship fixture builders -----------------------------------
+
+/**
+ * Build an M2O relationship: `fromTable.fromColumn` → `toTable.toColumn`.
+ * (The FK lives on `fromTable`.)
+ */
+export function makeM2O(spec: {
+  readonly from: string;
+  readonly fromColumn: string;
+  readonly to: string;
+  readonly toColumn: string;
+  readonly constraint?: string;
+  readonly schema?: string;
+  readonly toSchema?: string;
+}): Relationship {
+  const schema = spec.schema ?? 'public';
+  const toSchema = spec.toSchema ?? schema;
+  return {
+    table: { schema, name: spec.from },
+    foreignTable: { schema: toSchema, name: spec.to },
+    isSelf: spec.from === spec.to,
+    cardinality: {
+      type: 'M2O',
+      constraint: spec.constraint ?? `${spec.from}_${spec.fromColumn}_fkey`,
+      columns: [[spec.fromColumn, spec.toColumn]],
+    },
+    tableIsView: false,
+    foreignTableIsView: false,
+  };
+}
+
+/**
+ * Build an O2M relationship: `toTable.toColumn` → `fromTable.fromColumn`.
+ * (The FK lives on `toTable`; from the "source" side's point of view
+ * this is one-to-many.)
+ */
+export function makeO2M(spec: {
+  readonly from: string;
+  readonly fromColumn: string;
+  readonly to: string;
+  readonly toColumn: string;
+  readonly constraint?: string;
+  readonly schema?: string;
+}): Relationship {
+  const schema = spec.schema ?? 'public';
+  return {
+    table: { schema, name: spec.from },
+    foreignTable: { schema, name: spec.to },
+    isSelf: spec.from === spec.to,
+    cardinality: {
+      type: 'O2M',
+      constraint: spec.constraint ?? `${spec.to}_${spec.toColumn}_fkey`,
+      columns: [[spec.fromColumn, spec.toColumn]],
+    },
+    tableIsView: false,
+    foreignTableIsView: false,
+  };
+}
+
+/**
+ * A books/authors/reviews fixture with a full relationship graph.
+ * Used by embed planner tests.
+ */
+export const LIBRARY_SCHEMA: SchemaCache = makeSchema(
+  [
+    {
+      name: 'books',
+      primaryKey: ['id'],
+      columns: [
+        { name: 'id', type: 'bigint', nullable: false },
+        { name: 'title', type: 'text' },
+        { name: 'author_id', type: 'bigint' },
+        { name: 'price', type: 'numeric' },
+        { name: 'category', type: 'text' },
+        { name: 'rating', type: 'numeric' },
+      ],
+    },
+    {
+      name: 'authors',
+      primaryKey: ['id'],
+      columns: [
+        { name: 'id', type: 'bigint', nullable: false },
+        { name: 'name', type: 'text' },
+        { name: 'country', type: 'text' },
+      ],
+    },
+    {
+      name: 'reviews',
+      primaryKey: ['id'],
+      columns: [
+        { name: 'id', type: 'bigint', nullable: false },
+        { name: 'book_id', type: 'bigint' },
+        { name: 'rating', type: 'integer' },
+        { name: 'body', type: 'text' },
+      ],
+    },
+  ],
+  [
+    // books.author_id → authors.id (M2O from books' perspective)
+    makeM2O({
+      from: 'books',
+      fromColumn: 'author_id',
+      to: 'authors',
+      toColumn: 'id',
+      constraint: 'books_author_id_fkey',
+    }),
+    // authors → books (O2M from authors' perspective)
+    makeO2M({
+      from: 'authors',
+      fromColumn: 'id',
+      to: 'books',
+      toColumn: 'author_id',
+      constraint: 'books_author_id_fkey',
+    }),
+    // books → reviews (O2M)
+    makeO2M({
+      from: 'books',
+      fromColumn: 'id',
+      to: 'reviews',
+      toColumn: 'book_id',
+      constraint: 'reviews_book_id_fkey',
+    }),
+    // reviews → books (M2O)
+    makeM2O({
+      from: 'reviews',
+      fromColumn: 'book_id',
+      to: 'books',
+      toColumn: 'id',
+      constraint: 'reviews_book_id_fkey',
+    }),
+  ],
+);

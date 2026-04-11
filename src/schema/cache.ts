@@ -3,14 +3,17 @@
 // The cache carries everything the planner needs to validate a parsed
 // request against a real database: tables, relationships, and routines.
 //
-// Stage 6 populates `tables` only. Relationships and routines arrive
-// with later stages (stage 6b for embeds, stage 10 for RPC).
+// Stage 6a populated `tables`. Stage 6b adds `relationships` for embed
+// planning. Routines arrive with Stage 10.
 
 import type { QualifiedIdentifier } from '../http/request';
 import type { Table, TablesMap } from './table';
+import type { RelationshipsMap } from './relationship';
 
 export interface SchemaCache {
   readonly tables: TablesMap;
+  /** FK graph used by embed planning. Empty map = no relationships. */
+  readonly relationships: RelationshipsMap;
   /** Epoch-ms of when the cache was loaded. */
   readonly loadedAt: number;
   /** Monotonic version counter, bumped on reload. */

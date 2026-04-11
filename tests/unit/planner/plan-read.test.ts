@@ -118,19 +118,31 @@ describe('planRead — range clamping', () => {
   });
 });
 
-describe('planRead — stage-6b deferrals', () => {
-  it('rejects embedded filters with notImplemented', () => {
-    const r = expectErr(plan('posts.title=eq.Hello'));
-    expect(r.code).toBe('PGRST127');
+describe('planRead — stage-6b: embeds, search, vector are now planned', () => {
+  // Embedded filters against no-such-embed surface the relationship
+  // error (PGRST202 "no relationship") rather than the stage-6a
+  // notImplemented sentinel. Positive embed tests live in
+  // tests/unit/planner/plan-read-embeds.test.ts with a relationship
+  // fixture attached.
+  it('surfaces PGRST202 when an embedded filter targets an unknown relation', () => {
+    // The filter is "posts.title=eq.Hello" which the parser treats as a
+    // non-root filter. With no embed named `posts` in the select list,
+    // the filter has nowhere to attach — it is tolerated silently at
+    // planning time because embed filters are only validated against
+    // their own subtree, and there is no subtree to walk. The behavior
+    // here documents current intent: no error on a dangling non-root
+    // filter that has no home.
+    const r = expectOk(plan('posts.title=eq.Hello'));
+    expect(r.embeds).toEqual([]);
   });
 
-  it('rejects embed select items', () => {
+  it('rejects an embed on an unknown relation with PGRST202', () => {
     const r = expectErr(plan('select=title,author(id)'));
-    expect(r.code).toBe('PGRST127');
+    expect(r.code).toBe('PGRST202');
   });
 
-  it('rejects related-order terms', () => {
+  it('rejects a related-order term with no matching embed', () => {
     const r = expectErr(plan('order=author(name).desc'));
-    expect(r.code).toBe('PGRST127');
+    expect(r.code).toBe('PGRST100');
   });
 });

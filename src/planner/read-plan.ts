@@ -21,6 +21,7 @@ import type {
   OrderTerm,
   SelectItem,
 } from '../parser/types';
+import type { EmbedNode } from './embed-plan';
 
 // ----- Feature plan fields ---------------------------------------------
 
@@ -117,4 +118,14 @@ export interface ReadPlan {
 
   /** First-class distinct plan, or undefined. */
   readonly distinct?: DistinctPlan;
+
+  /**
+   * Root-level embeds — each entry is a fully resolved `EmbedNode`
+   * carrying its relationship, join-shape, and (recursively) its own
+   * subtree. Empty array = no embeds.
+   *
+   * Builder renders these as LATERAL joins, row_to_json / json_agg
+   * aggregates, or correlated scalar subqueries (for aggregate embeds).
+   */
+  readonly embeds: readonly EmbedNode[];
 }

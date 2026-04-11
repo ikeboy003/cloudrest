@@ -58,20 +58,42 @@ export function parseHavingClauses(
     const aggregate = aggMatch[1]! as AggregateFunction;
     const argsStart = aggMatch[0]!.length; // position of first char after `(`
 
-    // Find the matching close-paren.
+    // Find the matching close-paren. Quote-aware so that a quoted
+    // JSON key inside the argument (e.g. `sum(data->>"a)b")`) does not
+    // close the aggregate prematurely.
+    //
+    // BUG FIX (#AA6): the old scan only tracked paren depth — it saw
+    // the `)` inside `"a)b"` and closed the aggregate at the wrong
+    // position. Walk with quote tracking to skip past quoted regions.
     let argsEnd = -1;
     {
       let depth = 1;
-      for (let i = argsStart; i < trimmed.length; i++) {
+      let i = argsStart;
+      while (i < trimmed.length) {
         const ch = trimmed[i]!;
-        if (ch === '(') depth += 1;
-        else if (ch === ')') {
+        if (ch === "'") {
+          i = skipHavingQuoted(trimmed, i, "'");
+          continue;
+        }
+        if (ch === '"') {
+          i = skipHavingQuoted(trimmed, i, '"');
+          continue;
+        }
+        if (ch === '(') {
+          depth += 1;
+          i += 1;
+          continue;
+        }
+        if (ch === ')') {
           depth -= 1;
           if (depth === 0) {
             argsEnd = i;
             break;
           }
+          i += 1;
+          continue;
         }
+        i += 1;
       }
     }
     if (argsEnd === -1) {
@@ -103,6 +125,20 @@ export function parseHavingClauses(
         );
       }
       field = undefined;
+    } else if (argToken === '*') {
+      // BUG FIX (#AA4): only `count(*)` is meaningful. `sum(*).gt.1`
+      // and `avg(*).gt.1` used to parse because parseField accepts
+      // `*` as a bare field name. Normalize `count(*)` to the
+      // count-with-no-field shape and reject every other aggregate.
+      if (aggregate !== 'count') {
+        return err(
+          parseErrors.queryParam(
+            'having',
+            `${aggregate}(*) is not a valid aggregate — only count(*) is supported`,
+          ),
+        );
+      }
+      field = undefined;
     } else {
       // BUG FIX (#22): parse the argument as a full Field so JSON paths
       // like `sum(data->>'amount')` produce consistent ASTs.
@@ -123,4 +159,26 @@ export function parseHavingClauses(
   }
 
   return ok(clauses);
+}
+
+/**
+ * Walk past a quoted region (single or double) starting at `start`,
+ * honoring the doubled-quote escape form, and return the index one
+ * past the closing quote. If the quote never closes, returns
+ * `str.length` so the caller still terminates.
+ */
+function skipHavingQuoted(str: string, start: number, quoteChar: string): number {
+  let i = start + 1;
+  while (i < str.length) {
+    const ch = str[i]!;
+    if (ch === quoteChar) {
+      if (str[i + 1] === quoteChar) {
+        i += 2;
+        continue;
+      }
+      return i + 1;
+    }
+    i += 1;
+  }
+  return str.length;
 }

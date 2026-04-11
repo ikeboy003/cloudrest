@@ -346,6 +346,46 @@ Behaviors the rewrite deliberately changes. Each item links to the critique find
 - **Test.** [tests/unit/config/load.test.ts](./tests/unit/config/load.test.ts) "CORS default".
 - **Scope.** Both CloudREST v1 and PostgREST.
 
+#### Range: clamp negative table totals to null (stage 3)
+
+- **Previous behavior.** `pg_class.reltuples = -1` (for tables never analyzed) propagated into `Content-Range: */-1`, which tripped the 416 branch on the next request.
+- **New behavior.** `rangeStatusHeader` clamps any negative total to `null` at the boundary. Downstream code never sees a negative total.
+- **Reason.** Critique finding #73.
+- **Test.** [tests/unit/http/range.test.ts](./tests/unit/http/range.test.ts) "clamps negative table totals to null".
+- **Scope.** CloudREST v1 only.
+
+#### Preferences: never silently drop tx= (stage 3)
+
+- **Previous behavior.** `Prefer: tx=rollback` was silently swallowed when `DB_TX_END=commit` (no `-allow-override`). Dry-run clients thought they were rolling back; the server was committing.
+- **New behavior.** Forbidden `tx=` tokens go into `Preferences.invalidPrefs`. Stage 8's finalizer emits a `Warning` header under lenient handling and a PGRST122 400 under strict handling.
+- **Reason.** Critique finding #75.
+- **Test.** [tests/unit/http/preferences.test.ts](./tests/unit/http/preferences.test.ts) "tx (critique #75 regression)".
+- **Scope.** CloudREST v1 only.
+
+#### Parser: aggregate parsing runs before embed parsing (stage 4)
+
+- **Previous behavior.** `select=book_id,avg(rating)` parsed as an embed of a table named `avg`, producing "relation not found" errors instead of an aggregate.
+- **New behavior.** `parser/select.ts` checks the closed aggregate allowlist (`sum`, `avg`, `max`, `min`, `count`) before the embed branch. Canonical form `aggregate(column)` is accepted; extension form `column.aggregate()` is still accepted and parsed to the same AST node.
+- **Reason.** Critique finding #68.
+- **Test.** [tests/unit/parser/select.test.ts](./tests/unit/parser/select.test.ts) "parses canonical avg(rating) as a field aggregate, not an embed".
+- **Scope.** Neither CloudREST v1 nor PostgREST — this fixes a CloudREST bug.
+
+#### Builder: search/vector/distinct are first-class plan fields (stage 6)
+
+- **Previous behavior.** The old `buildReadQuery` produced a base SQL string with no search, vector, or distinct clauses; `index.ts` then ran `String.prototype.replace` / regex / paren-depth scanners to inject those features into the already-built SQL. `injectVectorIntoInnerSubquery` in [src/builder/vector.ts](../cloudrest-public/src/builder/vector.ts) and the FTS / distinct patches in [src/index.ts](../cloudrest-public/src/index.ts) are the canonical examples.
+- **New behavior.** `ReadPlan` carries `search`, `vector`, and `distinct` as typed fields. `builder/read.ts` renders the whole query in a single pass — projection, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, DISTINCT, search match, vector distance — with every user-controlled value bound via `SqlBuilder.addParam`. No file downstream of the builder modifies the returned SQL.
+- **Reason.** Critique findings #2 (SQL post-hoc surgery), #10 (search language inlined), #12 (FTS second-FROM), #72 (vector `distance` column validator ordering), #77 and #78 (vector `$N` rewriting bugs). CONSTITUTION §1.1, §1.3, §1.6.
+- **Test.** [tests/unit/builder/read.test.ts](./tests/unit/builder/read.test.ts) — specifically the `search is a first-class plan field`, `vector is a first-class plan field`, and `distinct as a first-class plan field` blocks, plus the `does not require a post-build SQL rewrite` constitution regression test.
+- **Scope.** CloudREST v1 only. The SQL shape matches PostgREST's for the same plan; the internal implementation is different.
+
+#### Parser: embed range params are stored for planner consumption (stage 4)
+
+- **Previous behavior.** `?books.limit=2` was parsed into `ranges` but the planner never consumed it; the inline `books(limit=2)` form was the only one that worked.
+- **New behavior.** Stage 4's dispatcher stores embed range params under the `\0`-joined embed path key; stage 6's planner consumes them.
+- **Reason.** Critique finding #69.
+- **Test.** [tests/unit/parser/query-params.test.ts](./tests/unit/parser/query-params.test.ts) "stores embed range params under a \\0-joined key".
+- **Scope.** CloudREST v1 only.
+
 #### Config: debug mode defaults off (stage 2)
 
 - **Previous behavior.** `DB_DEBUG_ENABLED` defaulted unset, which was treated as "off", but there was no boot-time warning when it was set.

@@ -923,6 +923,7 @@ function basePlan(overrides: Partial<ReadPlan> = {}): ReadPlan {
     mediaType: 'json',
     hasPreRequest: false,
     maxRows: null,
+    embeds: [],
     ...overrides,
   };
 }

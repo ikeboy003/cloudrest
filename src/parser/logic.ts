@@ -152,16 +152,23 @@ export function parseLogicTree(
  * Allows for:
  *   - relation-qualified keys: `actors.name.eq.John`
  *   - JSON-path keys: `data->>'a.b'.eq.x`
- *   - value-side negation: `col.not.eq.5`
  *   - FTS with language: `data.fts(english).word`
  *
  * BUG FIX (#14): the old scan took the LEFTMOST dot whose suffix looked
  * like an operator, so a column named like an op token in an embed path
  * (`actors.eq.name.eq.John`) would split at the wrong place. The
- * rewrite scans RIGHT-TO-LEFT for the last valid op-start, then extends
- * the split one dot further left when the immediately-preceding key
- * segment is `not` (so value-side `col.not.eq.5` still splits at
- * position 3 with val=`not.eq.5`).
+ * rewrite scans RIGHT-TO-LEFT for the last valid op-start.
+ *
+ * BUG FIX (#AA17): the previous iteration of this helper also tried to
+ * extend the split leftward through a preceding `.not` segment so that
+ * `col.not.eq.5` would produce `{key: 'col', value: 'not.eq.5'}`.
+ * PostgREST's logic-tree grammar does not use that value-side form —
+ * the canonical way to negate a leaf inside `and=(...)` is the
+ * wrapper form `not.col.eq.5`, already handled by the outer
+ * `filterStr.startsWith('not.')` strip. The extension rule was
+ * therefore solving a non-problem while actively breaking columns
+ * literally named `not` (`actors.not.eq.1` became field `actors`).
+ * Drop the extension.
  */
 function splitLogicLeaf(
   filterStr: string,
@@ -169,25 +176,11 @@ function splitLogicLeaf(
   const dotPositions = findUnquotedDotPositions(filterStr);
 
   // Walk right-to-left: the rightmost dot whose suffix is a valid
-  // operator expression is the correct split point in the common case.
+  // operator expression is the correct split point.
   for (let i = dotPositions.length - 1; i >= 0; i--) {
-    let pos = dotPositions[i]!;
-    let candidateValue = filterStr.slice(pos + 1);
+    const pos = dotPositions[i]!;
+    const candidateValue = filterStr.slice(pos + 1);
     if (!looksLikeOpStart(candidateValue)) continue;
-
-    // Extend left through any trailing `.not` in the key so that
-    // `col.not.eq.5` produces key=`col`, value=`not.eq.5` instead of
-    // key=`col.not`, value=`eq.5`. Loop because `parseOpExpr` only
-    // strips a single `not.` prefix, but be conservative: only extend
-    // when the preceding segment is exactly `not`.
-    while (i > 0) {
-      const prevPos = dotPositions[i - 1]!;
-      const precedingSegment = filterStr.slice(prevPos + 1, pos);
-      if (precedingSegment !== 'not') break;
-      i -= 1;
-      pos = prevPos;
-      candidateValue = filterStr.slice(pos + 1);
-    }
 
     const key = filterStr.slice(0, pos);
     if (key.length === 0) {
