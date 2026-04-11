@@ -19,5 +19,8 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     reporters: 'default',
+    // `tests/setup.ts` installs `globalThis.crypto` on Node 18
+    // (where `crypto` is not yet a global). See setup.ts header.
+    setupFiles: ['./tests/setup.ts'],
   },
 });
