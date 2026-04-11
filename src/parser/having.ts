@@ -1,19 +1,24 @@
 // Having parser — `?having=count().gt.5,sum(total).gte.1000`.
 //
 // Grammar: comma-separated clauses. Each clause is:
-//   aggregate '(' [column] ')' '.' operator '.' value
+//   aggregate '(' [column[->jsonpath]] ')' '.' operator '.' value
 //
 // COMPAT: PostgREST form. Aggregate names are the same closed allowlist
 // used by the select grammar (CONSTITUTION §12.5).
+//
+// BUG FIX (#21): `sum()`/`avg()`/`min()`/`max()` with no column are
+// errors — only `count()` accepts an empty argument.
+//
+// BUG FIX (#22): field arguments carry a full `Field` AST so JSON paths
+// work consistently with select/filter/order.
 
 import { err, ok, type Result } from '../core/result';
 import { parseErrors, type CloudRestError } from '../core/errors';
+import { parseField } from './json-path';
 import { parseOpExpr } from './operators';
 import { splitTopLevel } from './tokenize';
 import type { HavingClause } from './types/having';
 import type { AggregateFunction } from './types/select';
-
-const PATTERN = /^(count|sum|avg|max|min)\(([^)]*)\)\.(.+)$/;
 
 export function parseHavingClauses(
   raw: string,
@@ -21,12 +26,28 @@ export function parseHavingClauses(
   if (!raw) return ok([]);
 
   const clauses: HavingClause[] = [];
-  for (const part of splitTopLevel(raw, ',')) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
+  const partsResult = splitTopLevel(raw, ',', { context: 'having' });
+  if (!partsResult.ok) return partsResult;
 
-    const match = trimmed.match(PATTERN);
-    if (!match) {
+  // BUG FIX (#F/#O): a stray comma used to silently drop the empty
+  // middle clause. Detect empties via the quote-aware split output so
+  // a quoted JSON key like `sum(data->>"a,,b")` does not false-
+  // positive the check.
+  for (const part of partsResult.value) {
+    const trimmed = part.trim();
+    if (!trimmed) {
+      return err(
+        parseErrors.queryParam('having', 'empty having clause (stray comma)'),
+      );
+    }
+
+    // Find the `aggregate(args)` prefix by tracking paren depth, then
+    // consume the `.op.value` tail. A simple `^agg\(([^)]*)\)` regex is
+    // not enough because the field inside the parens may be a JSON
+    // path containing `)` (in theory) — but more importantly because
+    // we want the split to be consistent with the rest of the parser.
+    const aggMatch = trimmed.match(/^(count|sum|avg|max|min)\(/);
+    if (!aggMatch) {
       return err(
         parseErrors.queryParam(
           'having',
@@ -34,12 +55,63 @@ export function parseHavingClauses(
         ),
       );
     }
+    const aggregate = aggMatch[1]! as AggregateFunction;
+    const argsStart = aggMatch[0]!.length; // position of first char after `(`
 
-    const aggregate = match[1]! as AggregateFunction;
-    const fieldName = match[2]!.trim() || undefined;
-    const opAndValue = match[3]!;
+    // Find the matching close-paren.
+    let argsEnd = -1;
+    {
+      let depth = 1;
+      for (let i = argsStart; i < trimmed.length; i++) {
+        const ch = trimmed[i]!;
+        if (ch === '(') depth += 1;
+        else if (ch === ')') {
+          depth -= 1;
+          if (depth === 0) {
+            argsEnd = i;
+            break;
+          }
+        }
+      }
+    }
+    if (argsEnd === -1) {
+      return err(
+        parseErrors.queryParam('having', `unbalanced parens in "${trimmed}"`),
+      );
+    }
 
-    const opResult = parseOpExpr(opAndValue);
+    const argToken = trimmed.slice(argsStart, argsEnd).trim();
+    const tail = trimmed.slice(argsEnd + 1);
+    if (!tail.startsWith('.')) {
+      return err(
+        parseErrors.queryParam(
+          'having',
+          `expected ".op.value" after aggregate in "${trimmed}"`,
+        ),
+      );
+    }
+
+    // BUG FIX (#21): empty args only OK for count().
+    let field: HavingClause['field'];
+    if (argToken === '') {
+      if (aggregate !== 'count') {
+        return err(
+          parseErrors.queryParam(
+            'having',
+            `${aggregate}() requires a column argument`,
+          ),
+        );
+      }
+      field = undefined;
+    } else {
+      // BUG FIX (#22): parse the argument as a full Field so JSON paths
+      // like `sum(data->>'amount')` produce consistent ASTs.
+      const fieldResult = parseField(argToken);
+      if (!fieldResult.ok) return fieldResult;
+      field = fieldResult.value;
+    }
+
+    const opResult = parseOpExpr(tail.slice(1));
     if (!opResult.ok) return opResult;
     if (opResult.value === null) {
       return err(
@@ -47,7 +119,7 @@ export function parseHavingClauses(
       );
     }
 
-    clauses.push({ aggregate, field: fieldName, opExpr: opResult.value });
+    clauses.push({ aggregate, field, opExpr: opResult.value });
   }
 
   return ok(clauses);

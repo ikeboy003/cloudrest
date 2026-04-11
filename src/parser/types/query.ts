@@ -38,4 +38,31 @@ export interface ParsedQueryParams {
   /** `?on_conflict=a,b` column list for upsert resolution. */
   readonly onConflict: readonly string[] | null;
   readonly having: readonly HavingClause[];
+  /**
+   * `?distinct=col1,col2` column list for `SELECT DISTINCT ON (...)`.
+   * Null = no DISTINCT; empty array = `DISTINCT` with no ON clause.
+   */
+  readonly distinct: readonly string[] | null;
+  /**
+   * `?cursor=...` opaque cursor token. Verification and decoding live
+   * in the executor (HMAC). The parser just threads the value through.
+   *
+   * BUG FIX (#Z): the old dispatcher marked `cursor` as reserved and
+   * silently dropped it. Planner/executor can now see the value via
+   * this field once they are ready to consume it.
+   */
+  readonly cursor: string | null;
+  /**
+   * `?vector=...&vector.column=...&vector.op=...` vector search inputs.
+   * The parser threads the raw values through; the planner validates
+   * the column against the schema and chooses the distance function.
+   *
+   * BUG FIX (#Z): the old dispatcher marked these reserved and
+   * silently dropped them.
+   */
+  readonly vector: {
+    readonly value: string;
+    readonly column: string | null;
+    readonly op: string | null;
+  } | null;
 }
