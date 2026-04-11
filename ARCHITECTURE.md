@@ -6,23 +6,6 @@ If you're looking for how to propose changes, run tests, or ship a PR, see [CONT
 
 ---
 
-## Rewrite posture
-
-The rewrite is staged architecture work, not a one-shot port.
-
-Each stage must:
-
-1. Leave the project buildable.
-2. Keep tests passing.
-3. Introduce a small number of named concepts.
-4. Avoid copying old messy structure into new folders.
-5. Preserve behavior intentionally, backed by tests or explicit notes.
-6. Explain any intentional divergence from CloudREST v1 or PostgREST.
-
-The earlier CloudREST prototype is source material, not architecture authority. Copy behavior when it is desired. Do not copy file shape, naming, hidden coupling, or post-hoc SQL mutation patterns.
-
----
-
 ## Request lifecycle
 
 Every request flows through the same eight steps, in order. Each step has its own module boundary; no step reaches across more than one neighbor.
@@ -326,81 +309,17 @@ If the answer is not one of the three, match PostgREST, even when you think Post
 
 The aggregate name set is a closed allowlist (`avg`, `count`, `sum`, `min`, `max`). Aggregate parsing in `select` runs before embed parsing so that `select=book_id,avg(rating)` is not mistaken for an embed of a table named `avg`.
 
-### Intentional divergences from CloudREST v1 (pre-rewrite)
+### Intentional divergences from PostgREST
 
-Behaviors the rewrite deliberately changes. Each item links to the critique finding that justifies it.
+CloudREST deliberately diverges from PostgREST in a few places, always for a `SECURITY:` or `RUNTIME:` reason. Each divergence is documented in a source comment at the relevant module; the short list below names the divergences and their reasons.
 
-#### Config: no silent fallback on invalid env values (stage 2)
+- **CORS defaults off.** `CORS_ALLOWED_ORIGINS` unset means no cross-origin access — the router refuses preflights with 403 and does not emit `Access-Control-Allow-Origin`. PostgREST defaults to `*`, which is not a safe default for an internet-facing Worker running over a user's RLS-protected database.
+- **No silent fallback on invalid env vars.** A malformed `DB_TX_END` or `APP_SETTINGS` is a boot-time `ConfigError` that refuses to serve traffic until fixed, instead of silently falling back to a default. PostgREST logs a warning and keeps running; CloudREST fails loud.
+- **Negative `pg_class.reltuples` is clamped to null.** Postgres reports `reltuples = -1` for tables that have never been analyzed. Downstream code clamps that to `null` at the range-header boundary so `Content-Range: */-1` is never emitted.
+- **Forbidden `Prefer: tx=` values are surfaced, not swallowed.** When `DB_TX_END=commit` (no `-allow-override`), a client sending `Prefer: tx=rollback` gets a `Warning` header under lenient handling and a PGRST122 400 under strict. PostgREST silently commits.
+- **Per-request Postgres client.** The Workers runtime forbids sharing I/O objects across request handlers, so CloudREST creates a fresh `postgres.js` client per request and relies on Hyperdrive to pool TCP sessions at the edge. PostgREST (running on Node) holds a long-lived pool.
 
-- **Previous behavior.** `readConfig` silently fell back to defaults when an env var failed to parse. `MAX_QUERY_COST=notanumber` became `0` (cost guard disabled). `DB_TX_END=rollback-always` became `commit`. Malformed `APP_SETTINGS` JSON silently became `{}`. Malformed `JWT_ROLE_CLAIM` silently used the entire JWT as the role.
-- **New behavior.** `loadConfig` collects every parse error into a `ConfigError[]` and returns it as the `Err` branch of a `Result`. A boot-time worker that sees any errors must refuse to serve traffic.
-- **Reason.** Critique findings #5, #23, #40, #41, #42, #43. Silent fallback is how the old code hid misconfiguration until something exploded in production.
-- **Test.** [tests/unit/config/load.test.ts](./tests/unit/config/load.test.ts) "hard validation (no silent fallback)" and "JWT_ROLE_CLAIM validation" blocks.
-- **Scope.** CloudREST v1 only. PostgREST has its own config validation rules; the CloudREST rewrite matches the spirit but not the exact error shape.
-
-#### Config: CORS defaults off (stage 2)
-
-- **Previous behavior.** `CORS_ALLOWED_ORIGINS` unset defaulted to `*` (PostgREST-compatible).
-- **New behavior.** `CORS_ALLOWED_ORIGINS` unset leaves `cors.allowedOrigins` as `null`. The router treats null as "no CORS headers, 403 on preflight" (wired in stage 16).
-- **Reason.** Critique #57. `*` is not a safe default for an internet-facing Worker running over a user's RLS-protected database.
-- **Test.** [tests/unit/config/load.test.ts](./tests/unit/config/load.test.ts) "CORS default".
-- **Scope.** Both CloudREST v1 and PostgREST.
-
-#### Range: clamp negative table totals to null (stage 3)
-
-- **Previous behavior.** `pg_class.reltuples = -1` (for tables never analyzed) propagated into `Content-Range: */-1`, which tripped the 416 branch on the next request.
-- **New behavior.** `rangeStatusHeader` clamps any negative total to `null` at the boundary. Downstream code never sees a negative total.
-- **Reason.** Critique finding #73.
-- **Test.** [tests/unit/http/range.test.ts](./tests/unit/http/range.test.ts) "clamps negative table totals to null".
-- **Scope.** CloudREST v1 only.
-
-#### Preferences: never silently drop tx= (stage 3)
-
-- **Previous behavior.** `Prefer: tx=rollback` was silently swallowed when `DB_TX_END=commit` (no `-allow-override`). Dry-run clients thought they were rolling back; the server was committing.
-- **New behavior.** Forbidden `tx=` tokens go into `Preferences.invalidPrefs`. Stage 8's finalizer emits a `Warning` header under lenient handling and a PGRST122 400 under strict handling.
-- **Reason.** Critique finding #75.
-- **Test.** [tests/unit/http/preferences.test.ts](./tests/unit/http/preferences.test.ts) "tx (critique #75 regression)".
-- **Scope.** CloudREST v1 only.
-
-#### Parser: aggregate parsing runs before embed parsing (stage 4)
-
-- **Previous behavior.** `select=book_id,avg(rating)` parsed as an embed of a table named `avg`, producing "relation not found" errors instead of an aggregate.
-- **New behavior.** `parser/select.ts` checks the closed aggregate allowlist (`sum`, `avg`, `max`, `min`, `count`) before the embed branch. Canonical form `aggregate(column)` is accepted; extension form `column.aggregate()` is still accepted and parsed to the same AST node.
-- **Reason.** Critique finding #68.
-- **Test.** [tests/unit/parser/select.test.ts](./tests/unit/parser/select.test.ts) "parses canonical avg(rating) as a field aggregate, not an embed".
-- **Scope.** Neither CloudREST v1 nor PostgREST — this fixes a CloudREST bug.
-
-#### Builder: search/vector/distinct are first-class plan fields (stage 6)
-
-- **Previous behavior.** The old `buildReadQuery` produced a base SQL string with no search, vector, or distinct clauses; `index.ts` then ran `String.prototype.replace` / regex / paren-depth scanners to inject those features into the already-built SQL. `injectVectorIntoInnerSubquery` in [src/builder/vector.ts](../cloudrest-public/src/builder/vector.ts) and the FTS / distinct patches in [src/index.ts](../cloudrest-public/src/index.ts) are the canonical examples.
-- **New behavior.** `ReadPlan` carries `search`, `vector`, and `distinct` as typed fields. `builder/read.ts` renders the whole query in a single pass — projection, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, DISTINCT, search match, vector distance — with every user-controlled value bound via `SqlBuilder.addParam`. No file downstream of the builder modifies the returned SQL.
-- **Reason.** Critique findings #2 (SQL post-hoc surgery), #10 (search language inlined), #12 (FTS second-FROM), #72 (vector `distance` column validator ordering), #77 and #78 (vector `$N` rewriting bugs). CONSTITUTION §1.1, §1.3, §1.6.
-- **Test.** [tests/unit/builder/read.test.ts](./tests/unit/builder/read.test.ts) — specifically the `search is a first-class plan field`, `vector is a first-class plan field`, and `distinct as a first-class plan field` blocks, plus the `does not require a post-build SQL rewrite` constitution regression test.
-- **Scope.** CloudREST v1 only. The SQL shape matches PostgREST's for the same plan; the internal implementation is different.
-
-#### Parser: embed range params are stored for planner consumption (stage 4)
-
-- **Previous behavior.** `?books.limit=2` was parsed into `ranges` but the planner never consumed it; the inline `books(limit=2)` form was the only one that worked.
-- **New behavior.** Stage 4's dispatcher stores embed range params under the `\0`-joined embed path key; stage 6's planner consumes them.
-- **Reason.** Critique finding #69.
-- **Test.** [tests/unit/parser/query-params.test.ts](./tests/unit/parser/query-params.test.ts) "stores embed range params under a \\0-joined key".
-- **Scope.** CloudREST v1 only.
-
-#### Config: debug mode defaults off (stage 2)
-
-- **Previous behavior.** `DB_DEBUG_ENABLED` defaulted unset, which was treated as "off", but there was no boot-time warning when it was set.
-- **New behavior.** Same default, but values other than exactly `"true"`/`"false"` are a `ConfigError`. The boot-time warning for enabled debug lands with stage 11.
-- **Reason.** Critique #84.
-- **Test.** [tests/unit/config/load.test.ts](./tests/unit/config/load.test.ts) happy-path defaults block.
-- **Scope.** CloudREST v1 only.
-
-When adding an intentional divergence, include:
-
-1. Previous CloudREST v1 behavior.
-2. New behavior.
-3. Reason for change.
-4. Test that pins the new behavior.
-5. Whether the divergence is from CloudREST v1 only, PostgREST only, or both.
+When adding a new divergence, document it in a source comment with the `SECURITY:` or `RUNTIME:` prefix, and add a one-line entry to this list.
 
 ### Extensions
 
@@ -438,56 +357,6 @@ Rules:
 3. **Behavior tests use the real pipeline.** They swap out the executor for a fake, not the parser or builder.
 4. **Compat tests name the PostgREST behavior.** Comments read `COMPAT: PostgREST ...` so a reader can find the upstream reference.
 5. **Security regression tests name their source.** A test guarding against a previously-fixed CVE or reported bug starts with a comment like `// REGRESSION: CVE-YYYY-NNNNN — ...` or `// REGRESSION: issue #123 — ...` so a reader can find the original report.
-
----
-
-## Stage order (summary)
-
-The summary below is the default order. If a stage needs to move, update this document and explain why in the PR. Do not rely on a chat transcript as the source of truth.
-
-0. **Scaffold.** Buildable workspace, no-op worker, smoke test, this document.
-1. **Core primitives.** `Result<T>`, `CloudRestError` with grouped factories, `HandlerContext`.
-2. **Config.** Grouped `AppConfig`, hard validation, no silent fallback.
-3. **HTTP parsing layer.** Request, media (parse/negotiate/format), preferences, range.
-4. **Parser split.** One file per grammar, shared tokenizer, hardened payload parser.
-5. **SqlBuilder primitives.** Shared `BuiltQuery`, identifier/literal helpers with security invariants.
-6. **Read planner + builder.** Search, vector, distinct are first-class plan fields. No post-hoc SQL edits.
-7. **Executor boundary.** Explicit `TransactionOutcome`, statement timeout, long-lived client, one GUC parser.
-8. **First end-to-end slice.** `GET /{relation}` wired through the whole pipeline.
-9. **Mutation handler.**
-10. **RPC handler.**
-11. **Auth security fixes.**
-12. **Realtime auth + schema-aware routing.**
-13. **Edge cache correctness.**
-14. **Webhooks.**
-15. **Batch.**
-16. **Rate limit, CORS defaults, admin auth.**
-17. **Schema coordinator.**
-18. **Observability/admin split.**
-19. **Dead-code removal and final architecture pass.**
-
-Each stage must leave the project buildable and all tests passing.
-
-### Stage gate checklist
-
-Before starting a stage:
-
-1. Name the stage in one sentence.
-2. List modules that will be created or changed.
-3. List old source files that will be consulted.
-4. List old tests that will be used as behavioral evidence.
-5. State any expected behavior changes. The default is none.
-
-Before finishing a stage:
-
-1. The project builds.
-2. Tests pass.
-3. New module boundaries are documented by filenames and types.
-4. No new catch-all file was created.
-5. No stage introduced post-hoc SQL patching.
-6. No handler grew into request lifecycle soup.
-7. Any divergence is recorded in this file.
-8. Any old tests ported/replaced are recorded in the migration ledger.
 
 ---
 

@@ -9,7 +9,7 @@ A PostgREST-compatible REST API that runs as a Cloudflare Worker and talks to Po
 [![CI](https://github.com/ikeboy003/cloudrest/actions/workflows/ci.yml/badge.svg)](https://github.com/ikeboy003/cloudrest/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/ikeboy003/cloudrest/actions/workflows/codeql.yml/badge.svg)](https://github.com/ikeboy003/cloudrest/actions/workflows/codeql.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
-[![Node.js >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](.nvmrc)
+[![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](.nvmrc)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 [Getting started](docs/getting-started.md) · [API reference](docs/api/querying.md) · [Deployment](docs/deployment.md) · [Architecture](ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
@@ -19,9 +19,7 @@ A PostgREST-compatible REST API that runs as a Cloudflare Worker and talks to Po
 ---
 
 > [!NOTE]
-> **Early work in progress.** This repository is a clean rewrite of an earlier CloudREST prototype. Today the worker returns `501 Not Implemented` for every request. The documentation describes the target API; individual pages will lose their "not yet implemented" banners as each stage lands. Follow [CHANGELOG.md](CHANGELOG.md) for the current state.
->
-> If you want to understand the shape of the project, start with [ARCHITECTURE.md](ARCHITECTURE.md). If you want to help build it, read [CONTRIBUTING.md](CONTRIBUTING.md) and pick a stage.
+> **Pre-1.0.** CloudREST is under active development and the public API may still change between minor releases. Follow [CHANGELOG.md](CHANGELOG.md) for what has shipped.
 
 ## What CloudREST is
 
@@ -48,7 +46,7 @@ npm install
 npm run dev
 ```
 
-At Stage 0 `npm run dev` starts a worker that returns 501 for everything. That changes at Stage 8, when the first end-to-end `GET /{relation}` slice lands. See [ARCHITECTURE.md § Stage order](ARCHITECTURE.md#stage-order-summary) for the rest of the roadmap.
+`npm run dev` starts the Worker locally via `wrangler dev`. Point the `HYPERDRIVE` binding at a Postgres database (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for a local Podman recipe) and you have a REST API over your schema.
 
 ## Documentation
 
@@ -70,7 +68,7 @@ At Stage 0 `npm run dev` starts a worker that returns 501 for everything. That c
 ### For contributors
 
 - [**ARCHITECTURE.md**](ARCHITECTURE.md) — the map. Read this before touching source.
-- [**CONTRIBUTING.md**](CONTRIBUTING.md) — how to propose changes, run tests, and ship a stage.
+- [**CONTRIBUTING.md**](CONTRIBUTING.md) — how to propose changes, run tests, and ship a PR.
 - [**docs/DEVELOPMENT.md**](docs/DEVELOPMENT.md) — run a local Postgres, start `wrangler dev`, mint a dev JWT.
 - [**CODE_OF_CONDUCT.md**](CODE_OF_CONDUCT.md) — how we expect people to behave here.
 - [**SECURITY.md**](SECURITY.md) — how to report a vulnerability.
