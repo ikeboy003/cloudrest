@@ -4,7 +4,7 @@
 // handlers, Stage 11 auth) uses `makeTestConfig()`. Overrides are
 // deep-merged via the grouped structure, not a flat bag.
 
-import type { AppConfig } from '../../src/config/schema';
+import type { AppConfig } from '@/config/schema';
 
 export function makeTestConfig(
   overrides: Partial<AppConfig> = {},

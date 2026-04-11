@@ -22,12 +22,12 @@
 // SQL via SqlBuilder.addParam — filter bindings inside the child plans
 // go through the standard filter renderer.
 
-import { parseErrors, type CloudRestError } from '../core/errors';
-import { err, ok, type Result } from '../core/result';
-import type { QualifiedIdentifier } from '../http/request';
-import type { SelectItem } from '../parser/types';
-import type { EmbedNode, ReadPlanSubtree } from '../planner/embed-plan';
-import type { Cardinality } from '../schema/relationship';
+import { parseErrors, type CloudRestError } from '@/core/errors';
+import { err, ok, type Result } from '@/core/result';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { SelectItem } from '@/parser/types';
+import type { EmbedNode, ReadPlanSubtree } from '@/planner/embed-plan';
+import type { Cardinality } from '@/schema/relationship';
 import { escapeIdent, qualifiedIdentifierToSql } from './identifiers';
 import {
   renderField,

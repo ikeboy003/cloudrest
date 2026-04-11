@@ -12,14 +12,14 @@
 // recursion so circular or pathological relationship graphs cannot
 // wedge the planner.
 
-import { err, ok, type Result } from '../core/result';
+import { err, ok, type Result } from '@/core/result';
 import {
   parseErrors,
   schemaErrors,
   type CloudRestError,
-} from '../core/errors';
-import type { QualifiedIdentifier } from '../http/request';
-import { ALL_ROWS, type NonnegRange } from '../http/range';
+} from '@/core/errors';
+import type { QualifiedIdentifier } from '@/http/request';
+import { ALL_ROWS, type NonnegRange } from '@/http/range';
 import type {
   EmbedPath,
   Filter,
@@ -27,16 +27,16 @@ import type {
   LogicTree,
   OrderTerm,
   SelectItem,
-} from '../parser/types';
-import type { SchemaCache } from '../schema/cache';
-import { findTable } from '../schema/cache';
-import type { Table } from '../schema/table';
-import { findColumn } from '../schema/table';
-import type { Relationship } from '../schema/relationship';
+} from '@/parser/types';
+import type { SchemaCache } from '@/schema/cache';
+import { findTable } from '@/schema/cache';
+import type { Table } from '@/schema/table';
+import { findColumn } from '@/schema/table';
+import type { Relationship } from '@/schema/relationship';
 import {
   relationshipIsToOne,
   resolveRelationship,
-} from '../schema/relationship';
+} from '@/schema/relationship';
 
 /** Maximum embed nesting depth. Matches old-code safety limit. */
 export const MAX_EMBED_DEPTH = 8;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseField } from '../../../src/parser/json-path';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
+import { parseField } from '@/parser/json-path';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 describe('parseField', () => {
   it('parses a plain column name', () => {

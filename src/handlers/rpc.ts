@@ -9,26 +9,28 @@
 // or composite return. Volatile functions get POST, stable/immutable
 // allow GET (via `routineCall` with `invokeRead`).
 
-import { err, type Result } from '../core/result';
-import type { CloudRestError } from '../core/errors';
-import type { HandlerContext } from '../core/context';
-import type { ParsedHttpRequest } from '../http/request';
-import { parseQueryParams } from '../parser/query-params';
+import { err, type Result } from '@/core/result';
+import type { CloudRestError } from '@/core/errors';
+import type { HandlerContext } from '@/core/context';
+import type { ParsedHttpRequest } from '@/http/request';
+import { parseQueryParams } from '@/parser/query-params';
 import {
   parsePayload,
   parseJsonPayload,
   type Payload,
-} from '../parser/payload';
-import { planRpc } from '../planner/plan-rpc';
-import { buildRpcQuery } from '../builder/rpc';
-import { runQuery } from '../executor/execute';
-import type { RawDomainResponse } from '../response/build';
+} from '@/parser/payload';
+import { planRpc } from '@/planner/plan-rpc';
+import { buildRpcQuery } from '@/builder/rpc';
+import { runQuery } from '@/executor/execute';
+import { buildRequestPrelude } from '@/executor/request-prelude';
+import type { RawDomainResponse } from '@/response/build';
 import {
   contentTypeFor,
   finalizeResponse,
   type MediaTypeId,
-} from '../response/finalize';
-import { negotiateOutputMedia } from '../http/media/negotiate';
+} from '@/response/finalize';
+import { negotiateOutputMedia } from '@/http/media/negotiate';
+import { intersectRanges, type NonnegRange } from '@/http/range';
 
 const RPC_OFFERED_MEDIA: readonly MediaTypeId[] = [
   'json',
@@ -83,14 +85,23 @@ export async function handleRpc(
     payload = null;
   }
 
-  // 4. Plan the RPC call.
+  // 4. Plan the RPC call. `parseHttpRequest` only populates
+  //    `topLevelRange` from the `Range:` header; `?limit=` /
+  //    `?offset=` live under `parsed.ranges` and must be
+  //    intersected here (same fix as the read handler HH1).
+  const queryRange: NonnegRange =
+    parsed.value.ranges.get('limit') ?? { offset: 0, limit: null };
+  const effectiveTopLevelRange = intersectRanges(
+    httpRequest.topLevelRange,
+    queryRange,
+  );
   const plan = planRpc({
     target: action.target,
     parsed: parsed.value,
     payload,
     preferences: httpRequest.preferences,
     schema: context.schema,
-    topLevelRange: httpRequest.topLevelRange,
+    topLevelRange: effectiveTopLevelRange,
   });
   if (!plan.ok) return plan;
 
@@ -100,7 +111,18 @@ export async function handleRpc(
 
   // 6. Execute. Volatile routines honor `Prefer: tx=rollback` just
   //    like mutations; stable/immutable invocations always commit.
+  //    The authenticated role and claim GUCs flow through the
+  //    request prelude so routines behave under the JWT-resolved
+  //    role, not the connection role.
+  const prelude = buildRequestPrelude({
+    auth: context.auth,
+    config: context.config,
+    httpRequest,
+  });
   const execResult = await runQuery(context, built.value, {
+    roleSql: prelude.roleSql,
+    preQuerySql: prelude.preQuerySql,
+    preRequestSql: prelude.preRequestSql,
     rollbackPreferred:
       action.invocation === 'invoke' &&
       (httpRequest.preferences.preferTransaction === 'rollback' ||

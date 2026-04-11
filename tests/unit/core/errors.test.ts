@@ -10,7 +10,7 @@ import {
   schemaErrors,
   serverErrors,
   sqlStateToHttpStatus,
-} from '../../../src/core/errors';
+} from '@/core/errors';
 
 describe('parseErrors', () => {
   it('queryParam emits PGRST100 with 400', () => {

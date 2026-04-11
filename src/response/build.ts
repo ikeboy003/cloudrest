@@ -8,8 +8,8 @@
 // string. Response construction only reads `QueryResult`; it never
 // calls back into the builder.
 
-import type { QueryResult } from '../executor/types';
-import type { ReadPlan } from '../planner/read-plan';
+import type { QueryResult } from '@/executor/types';
+import type { ReadPlan } from '@/planner/read-plan';
 
 export interface RawDomainResponse {
   /** Body string already in its final form (JSON, CSV text, etc.). */
@@ -24,6 +24,13 @@ export interface RawDomainResponse {
   readonly responseHeaders: string | null;
   /** Raw `response.status` GUC value or null. */
   readonly responseStatus: string | null;
+  /**
+   * URL fragment to emit as `Location:` on 201/303 responses. The
+   * mutation SQL wrapper builds this as a `pk=eq.<value>` query
+   * string fragment; the finalizer prepends the request path.
+   * `null` for read paths and for mutations without a primary key.
+   */
+  readonly locationQuery?: string | null;
 }
 
 /**

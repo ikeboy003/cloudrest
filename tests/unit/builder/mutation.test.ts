@@ -8,13 +8,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { buildMutationQuery } from '../../../src/builder/mutation';
+import { buildMutationQuery } from '@/builder/mutation';
 import type {
   DeletePlan,
   InsertPlan,
   UpdatePlan,
-} from '../../../src/planner/mutation-plan';
-import { expectOk } from '../../fixtures/assert-result';
+} from '@/planner/mutation-plan';
+import { expectOk } from '@tests/fixtures/assert-result';
 
 const BOOKS = { schema: 'public', name: 'books' };
 
@@ -66,19 +66,23 @@ describe('buildMutationQuery — INSERT', () => {
   it('emits a CTE wrapped with the standard result envelope', () => {
     const built = expectOk(buildMutationQuery(insertPlan()));
     expect(built.sql).toContain('WITH pgrst_source AS (INSERT INTO "public"."books"');
-    expect(built.sql).toContain('json_to_record($1::json)');
+    expect(built.sql).toContain('jsonb_to_record(');
+    expect(built.sql).toContain('::jsonb');
     expect(built.sql).toContain('RETURNING "public"."books".*');
     expect(built.sql).toContain('coalesce(json_agg(pgrst_source)');
   });
 
-  it('binds the body via $1 — no pgFmtLit inlining (CONSTITUTION §1.3)', () => {
+  // RUNTIME override (see builder/mutation.ts header): the JSON
+  // body is inlined via `pgFmtLit` because postgres.js cannot bind
+  // jsonb params through `json_to_record` in a prepared statement.
+  it('inlines the JSON body as a jsonb literal — no bind param', () => {
     const built = expectOk(buildMutationQuery(insertPlan()));
-    expect(built.params).toEqual(['{"title":"Hello"}']);
-    expect(built.sql).not.toContain("E'");
-    expect(built.sql).not.toContain("'{\"title\"");
+    expect(built.params).toEqual([]);
+    // The inlined form appears as `'{"title":"Hello"}'::jsonb`.
+    expect(built.sql).toContain(`'{"title":"Hello"}'::jsonb`);
   });
 
-  it('uses json_to_recordset for an array body (no LIMIT 1 on the json source)', () => {
+  it('uses jsonb_to_recordset for an array body (no LIMIT 1 on the json source)', () => {
     const built = expectOk(
       buildMutationQuery(
         insertPlan({
@@ -87,11 +91,12 @@ describe('buildMutationQuery — INSERT', () => {
         }),
       ),
     );
-    expect(built.sql).toContain('json_to_recordset($1::json)');
-    // The array form has no `LIMIT 1` suffix on the json_to_recordset
-    // call. The Location-header subquery uses `LIMIT 1` for its own
-    // reason (fetching one row to render the header), so we target
-    // the `AS _(...)` alias shape specifically.
+    expect(built.sql).toContain('jsonb_to_recordset(');
+    expect(built.sql).toContain('::jsonb');
+    // The array form has no `LIMIT 1` suffix on the
+    // jsonb_to_recordset call. The Location-header subquery uses
+    // `LIMIT 1` for its own reason (fetching one row to render the
+    // header), so we target the `AS _(...)` alias shape specifically.
     expect(built.sql).not.toMatch(/AS _\([^)]*\) LIMIT 1/);
   });
 
@@ -156,9 +161,10 @@ describe('buildMutationQuery — UPDATE', () => {
     expect(built.sql).not.toMatch(/RETURNING \*\)/);
   });
 
-  it('joins against json_to_record with a typed column list', () => {
+  it('joins against jsonb_to_record with a typed column list', () => {
     const built = expectOk(buildMutationQuery(updatePlan()));
-    expect(built.sql).toContain('FROM json_to_record($1::json) AS pgrst_body');
+    expect(built.sql).toContain('FROM jsonb_to_record(');
+    expect(built.sql).toContain('::jsonb) AS pgrst_body');
     expect(built.sql).toContain('"title" = pgrst_body."title"');
   });
 

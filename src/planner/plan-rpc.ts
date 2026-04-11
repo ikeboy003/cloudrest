@@ -6,26 +6,32 @@
 // such routine) or PGRST202-style argument mismatch surfaces at
 // plan time with a meaningful error.
 
-import { err, ok, type Result } from '../core/result';
+import { err, ok, type Result } from '@/core/result';
 import {
   fuzzyFind,
   parseErrors,
   schemaErrors,
   type CloudRestError,
-} from '../core/errors';
-import type { QualifiedIdentifier } from '../http/request';
-import type { Preferences } from '../http/preferences';
-import type { NonnegRange } from '../http/range';
-import type { Filter, LogicTree, OrderTerm, ParsedQueryParams } from '../parser/types';
+} from '@/core/errors';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { Preferences } from '@/http/preferences';
+import type { NonnegRange } from '@/http/range';
+import type {
+  Filter,
+  LogicTree,
+  OrderTerm,
+  ParsedQueryParams,
+  SelectItem,
+} from '@/parser/types';
 import type { Payload } from './../parser/payload';
-import type { SchemaCache } from '../schema/cache';
+import type { SchemaCache } from '@/schema/cache';
 import {
   funcReturnsScalar,
   funcReturnsSetOfScalar,
   funcReturnsVoid,
   routineKey,
   type Routine,
-} from '../schema/routine';
+} from '@/schema/routine';
 import type { RpcCallShape, RpcPlan } from './rpc-plan';
 import type { ReturnPreference } from './mutation-plan';
 
@@ -49,10 +55,15 @@ export function planRpc(input: PlanRpcInput): Result<RpcPlan, CloudRestError> {
   if (!convention.ok) return convention;
   const { callShape, namedArgs, rawBody } = convention.value;
 
-  // ----- 3. Root-level filter/logic/order partitioning ---------------
+  // ----- 3. Root-level filter/logic/order/select partitioning -------
   const filters: readonly Filter[] = input.parsed.filtersRoot;
   const logic: readonly LogicTree[] = collectRootLogic(input.parsed);
   const order: readonly OrderTerm[] = collectRootOrder(input.parsed);
+  // Drop any embed items — RPC result sets have no relationship
+  // graph so embed projections aren't meaningful.
+  const selectFields: readonly SelectItem[] = input.parsed.select.filter(
+    (item) => item.type === 'field',
+  );
 
   // ----- 4. Return preference ----------------------------------------
   const returnPreference: ReturnPreference =
@@ -69,6 +80,7 @@ export function planRpc(input: PlanRpcInput): Result<RpcPlan, CloudRestError> {
     logic,
     order,
     range: input.topLevelRange,
+    select: selectFields,
     returnPreference,
     returnsScalar: funcReturnsScalar(routine),
     returnsSetOfScalar: funcReturnsSetOfScalar(routine),

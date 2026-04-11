@@ -16,8 +16,8 @@
 // string-concatenated batch, so a failure at any step has a precise
 // SQLSTATE and error message.
 
-import { err, ok, type Result } from '../core/result';
-import { serverErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { serverErrors, type CloudRestError } from '@/core/errors';
 import type {
   ExecutableQuery,
   QueryResult,

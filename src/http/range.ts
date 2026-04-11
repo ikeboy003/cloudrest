@@ -11,8 +11,8 @@
 // the parse/response boundary, so no downstream code sees a nonsense
 // total.
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
 
 /**
  * A non-negative range: an inclusive-start offset plus an optional

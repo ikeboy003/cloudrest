@@ -38,8 +38,8 @@ import {
   pgFmtLit,
   qualifiedColumnToSql,
   qualifiedIdentifierToSql,
-} from '../../../src/builder/identifiers';
-import { SqlBuilder } from '../../../src/builder/sql';
+} from '@/builder/identifiers';
+import { SqlBuilder } from '@/builder/sql';
 import {
   buildPgArrayLiteral,
   renderField,
@@ -47,16 +47,16 @@ import {
   renderHaving,
   renderLogicTree,
   renderSelectProjection,
-} from '../../../src/builder/fragments';
-import { parseFilter } from '../../../src/parser/filter';
-import { parseLogicTree } from '../../../src/parser/logic';
-import { parseHavingClauses } from '../../../src/parser/having';
-import { parseOrder } from '../../../src/parser/order';
-import { parseSelect } from '../../../src/parser/select';
-import { parseField } from '../../../src/parser/json-path';
-import { buildReadQuery } from '../../../src/builder/read';
-import type { ReadPlan } from '../../../src/planner/read-plan';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
+} from '@/builder/fragments';
+import { parseFilter } from '@/parser/filter';
+import { parseLogicTree } from '@/parser/logic';
+import { parseHavingClauses } from '@/parser/having';
+import { parseOrder } from '@/parser/order';
+import { parseSelect } from '@/parser/select';
+import { parseField } from '@/parser/json-path';
+import { buildReadQuery } from '@/builder/read';
+import type { ReadPlan } from '@/planner/read-plan';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 const target = { schema: 'public', name: 'books' } as const;
 

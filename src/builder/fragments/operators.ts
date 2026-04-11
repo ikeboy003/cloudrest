@@ -13,7 +13,7 @@ import type {
   IsVal,
   QuantOperator,
   SimpleOperator,
-} from '../../parser/types';
+} from '@/parser/types';
 
 export const SIMPLE_OPS: Record<SimpleOperator, string> = {
   neq: '<>',

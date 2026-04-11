@@ -4,8 +4,8 @@ import type {
   HandlerContext,
   RequestContext,
   WorkerExecutionContext,
-} from '../../../src/core/context';
-import { testEnv } from '../../fixtures/env';
+} from '@/core/context';
+import { testEnv } from '@tests/fixtures/env';
 
 // These tests are type-level contracts: they ensure HandlerContext can be
 // built without needing future stages' concrete types, and that widening

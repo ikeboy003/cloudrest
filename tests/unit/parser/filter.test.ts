@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseFilter } from '../../../src/parser/filter';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
+import { parseFilter } from '@/parser/filter';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 describe('parseFilter', () => {
   it('parses a root-level filter', () => {

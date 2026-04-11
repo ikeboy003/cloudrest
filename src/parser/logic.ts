@@ -11,8 +11,8 @@
 //   `(not.col.eq.1,or(col2.gt.5,col3.lt.0))`
 //   `(and(col.eq.1,col.eq.2),or(col.lt.10))`
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
 import { parseField } from './json-path';
 import { parseOpExpr } from './operators';
 import { splitTopLevel } from './tokenize';

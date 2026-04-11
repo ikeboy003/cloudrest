@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseAcceptHeader, parseContentTypeHeader } from '../../../src/http/media/parse';
+import { parseAcceptHeader, parseContentTypeHeader } from '@/http/media/parse';
 
 describe('parseAcceptHeader', () => {
   it('treats missing Accept as */*', () => {

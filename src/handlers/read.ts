@@ -10,24 +10,25 @@
 // Every dependency comes through `context: HandlerContext`. Adding a
 // new dependency means widening HandlerContext, not this signature.
 
-import { err, type Result } from '../core/result';
-import { mediaErrors, type CloudRestError } from '../core/errors';
-import type { HandlerContext } from '../core/context';
-import type { ParsedHttpRequest } from '../http/request';
-import { parseQueryParams } from '../parser/query-params';
-import { planRead } from '../planner/plan-read';
-import { buildReadQuery } from '../builder/read';
-import { runQuery } from '../executor/execute';
-import type { ReadPlan } from '../planner/read-plan';
-import { buildReadResponse, type RawDomainResponse } from '../response/build';
+import { err, type Result } from '@/core/result';
+import { mediaErrors, type CloudRestError } from '@/core/errors';
+import type { HandlerContext } from '@/core/context';
+import type { ParsedHttpRequest } from '@/http/request';
+import { parseQueryParams } from '@/parser/query-params';
+import { planRead } from '@/planner/plan-read';
+import { buildReadQuery } from '@/builder/read';
+import { runQuery } from '@/executor/execute';
+import { buildRequestPrelude } from '@/executor/request-prelude';
+import type { ReadPlan } from '@/planner/read-plan';
+import { buildReadResponse, type RawDomainResponse } from '@/response/build';
 import {
   contentTypeFor,
   finalizeResponse,
   type MediaTypeId,
-} from '../response/finalize';
-import { formatBody } from '../http/media/format';
-import { negotiateOutputMedia } from '../http/media/negotiate';
-import { intersectRanges, type NonnegRange } from '../http/range';
+} from '@/response/finalize';
+import { formatBody } from '@/http/media/format';
+import { negotiateOutputMedia } from '@/http/media/negotiate';
+import { intersectRanges, type NonnegRange } from '@/http/range';
 
 const READ_OFFERED_MEDIA: readonly MediaTypeId[] = [
   'json',
@@ -110,7 +111,23 @@ export async function handleRead(
   if (!built.ok) return built;
 
   // 5. Execute.
-  const execResult = await runQuery(context, built.value);
+  //
+  // BUG FIX: the read handler used to hand `runQuery` a BuiltQuery
+  // only, so the authenticated role, per-request claim GUCs, and
+  // the `DB_PRE_REQUEST` hook were all silently dropped even though
+  // the executor supports every slot. Build the per-request SQL
+  // prelude here so RLS-gated policies actually see the claims and
+  // the role the router resolved.
+  const prelude = buildRequestPrelude({
+    auth: context.auth,
+    config: context.config,
+    httpRequest,
+  });
+  const execResult = await runQuery(context, built.value, {
+    roleSql: prelude.roleSql,
+    preQuerySql: prelude.preQuerySql,
+    preRequestSql: prelude.preRequestSql,
+  });
   if (!execResult.ok) return execResult;
 
   // 6. Build the domain response.

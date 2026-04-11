@@ -14,25 +14,25 @@
 // builder, not by string-surgery. The plan flags the preference;
 // the builder emits `RETURNING table.*` explicitly.
 
-import { err, ok, type Result } from '../core/result';
+import { err, ok, type Result } from '@/core/result';
 import {
   fuzzyFind,
   parseErrors,
   schemaErrors,
   type CloudRestError,
-} from '../core/errors';
-import type { QualifiedIdentifier } from '../http/request';
-import type { Preferences } from '../http/preferences';
+} from '@/core/errors';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { Preferences } from '@/http/preferences';
 import type {
   Filter,
   LogicTree,
   ParsedQueryParams,
-} from '../parser/types';
-import type { Payload } from '../parser/payload';
-import type { SchemaCache } from '../schema/cache';
-import { findTable } from '../schema/cache';
-import type { Column, Table } from '../schema/table';
-import { findColumn } from '../schema/table';
+} from '@/parser/types';
+import type { Payload } from '@/parser/payload';
+import type { SchemaCache } from '@/schema/cache';
+import { findTable } from '@/schema/cache';
+import type { Column, Table } from '@/schema/table';
+import { findColumn } from '@/schema/table';
 import type {
   ConflictResolution,
   DeletePlan,
@@ -185,7 +185,22 @@ function planUpdate(
 ): Result<UpdatePlan, CloudRestError> {
   const payload = normalizeJsonPayload(input.payload);
   if (!payload.ok) return payload;
-  const { rawBody, payloadKeys } = payload.value;
+  const { rawBody, payloadKeys, isArrayBody } = payload.value;
+
+  // BUG FIX: PATCH with an array JSON body used to flow through
+  // the builder as-is, where `json_to_record($1::json)` would
+  // fail at Postgres runtime with an opaque parse error because
+  // it expects a JSON object, not an array. PostgREST rejects
+  // the same request at parse time with PGRST102. Mirror that
+  // behavior — PATCH semantics are "apply ONE set of values to
+  // ALL matched rows", which an array cannot express.
+  if (isArrayBody) {
+    return err(
+      parseErrors.invalidBody(
+        'PATCH body must be a JSON object, not an array',
+      ),
+    );
+  }
 
   for (const key of payloadKeys) {
     if (!findColumn(table, key)) {

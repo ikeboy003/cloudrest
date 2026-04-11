@@ -11,15 +11,15 @@ import {
   renderOrderClause,
   renderOrderTerm,
   renderSelectProjection,
-} from '../../../src/builder/fragments';
-import { SqlBuilder } from '../../../src/builder/sql';
-import { isOk, type Result } from '../../../src/core/result';
-import type { CloudRestError } from '../../../src/core/errors';
-import { parseSelect } from '../../../src/parser/select';
-import { parseFilter } from '../../../src/parser/filter';
-import { parseOrder } from '../../../src/parser/order';
-import { parseLogicTree } from '../../../src/parser/logic';
-import { parseHavingClauses } from '../../../src/parser/having';
+} from '@/builder/fragments';
+import { SqlBuilder } from '@/builder/sql';
+import { isOk, type Result } from '@/core/result';
+import type { CloudRestError } from '@/core/errors';
+import { parseSelect } from '@/parser/select';
+import { parseFilter } from '@/parser/filter';
+import { parseOrder } from '@/parser/order';
+import { parseLogicTree } from '@/parser/logic';
+import { parseHavingClauses } from '@/parser/having';
 
 // ----- Helpers ---------------------------------------------------------
 

@@ -1,11 +1,16 @@
 // JWKS fetch + key import.
 //
-// Stage 8a: file move only. Behavior-preserving port of `fetchJwks`
-// and `getJwksKey` from cloudrest-public/src/auth.ts.
-//
-// INVARIANT: The module-level cache is keyed by URI. A refresh clears
-// the imported-key cache — Stage 11's "versioned by fetch timestamp"
-// fix lives in a later diff.
+// STAGE 11 SECURITY FIXES:
+//   §11.5 — the imported-key cache is VERSIONED by fetch timestamp
+//           instead of cleared on refresh. The old code cleared the
+//           map as soon as a new JWKS fetched, which raced with any
+//           in-flight request that had resolved its key before the
+//           refresh and then found the cache empty on second lookup.
+//           The new cache keys include the fetchedAt epoch so old and
+//           new entries coexist; lookups pick the current version.
+//   §11.6 — enforcement lives in `authenticate.ts`, which rejects
+//           `http://` secrets at the outer boundary. `getJwksKey`
+//           also refuses anything that isn't `https://`.
 
 import { algToEcCurve, algToHash, isEcAlg, isHmacAlg, isRsaAlg } from './pem';
 
@@ -26,8 +31,22 @@ interface JwksResponse {
 
 const JWKS_TTL_MS = 5 * 60 * 1000;
 
-let cachedJwks: { keys: readonly JwkWithKid[]; fetchedAt: number } | null = null;
+interface JwksCacheEntry {
+  readonly keys: readonly JwkWithKid[];
+  readonly fetchedAt: number;
+}
+
+let cachedJwks: JwksCacheEntry | null = null;
 let cachedJwksUri: string | null = null;
+
+/**
+ * Imported-key cache. Key shape is `<fetchedAt>\0<alg>\0<discriminator>`
+ * so entries from a previous fetch stay addressable even after a
+ * refresh — an in-flight request that already resolved against the
+ * old JWKS won't find an empty map. Old entries age out naturally
+ * when the URI is re-fetched and the new `fetchedAt` becomes the
+ * lookup prefix for all subsequent calls.
+ */
 const jwkKeyCache = new Map<string, CryptoKey>();
 
 /** Reset JWKS caches. Tests only — production code never clears. */
@@ -49,10 +68,18 @@ export function __resetJwksCacheForTest(): void {
  * on JSON-parse failures, and `verifySignature` did not catch them,
  * so a bad IdP response became an unhandled request failure.
  */
+/**
+ * Fetch-or-cache the JWKS document. Returns the entry including its
+ * `fetchedAt` so callers can version imported keys against it.
+ *
+ * §11.5: no more `jwkKeyCache.clear()` on refresh. Old imported
+ * keys stay addressable under their old `fetchedAt` prefix and
+ * naturally fall out once nothing references them.
+ */
 async function fetchJwks(
   uri: string,
   forceRefresh: boolean,
-): Promise<readonly JwkWithKid[] | null> {
+): Promise<JwksCacheEntry | null> {
   const now = Date.now();
   if (
     !forceRefresh &&
@@ -60,7 +87,7 @@ async function fetchJwks(
     cachedJwksUri === uri &&
     now - cachedJwks.fetchedAt < JWKS_TTL_MS
   ) {
-    return cachedJwks.keys;
+    return cachedJwks;
   }
 
   let response: Response;
@@ -79,11 +106,10 @@ async function fetchJwks(
   }
   if (!data || !Array.isArray(data.keys)) return null;
 
-  cachedJwks = { keys: data.keys, fetchedAt: now };
+  const entry: JwksCacheEntry = { keys: data.keys, fetchedAt: now };
+  cachedJwks = entry;
   cachedJwksUri = uri;
-  // Clear imported key cache on refresh.
-  jwkKeyCache.clear();
-  return data.keys;
+  return entry;
 }
 
 /**
@@ -99,34 +125,38 @@ export async function getJwksKey(
   kid: string | undefined,
   alg: string,
 ): Promise<CryptoKey | null> {
+  // §11.6: only `https://` JWKS URIs are permitted at this layer
+  // (the authenticate boundary also rejects `http://`; this is
+  // defense in depth).
+  if (!uri.startsWith('https://')) return null;
+
   // BUG FIX (#GG4): fail closed on any alg outside the strict JWS
   // allowlist so the loose `startsWith('RS')`/`startsWith('ES')`/
   // `startsWith('HS')` matches below cannot pick up junk.
   if (!isRsaAlg(alg) && !isEcAlg(alg) && !isHmacAlg(alg)) return null;
 
-  let keys = await fetchJwks(uri, false);
-  if (keys === null) return null;
+  let entry = await fetchJwks(uri, false);
+  if (entry === null) return null;
 
   let jwk = kid
-    ? keys.find((k) => k.kid === kid)
-    : keys.find((k) => k.alg === alg || !k.alg);
+    ? entry.keys.find((k) => k.kid === kid)
+    : entry.keys.find((k) => k.alg === alg || !k.alg);
 
   if (!jwk && kid) {
     const refreshed = await fetchJwks(uri, true);
     if (refreshed === null) return null;
-    keys = refreshed;
-    jwk = keys.find((k) => k.kid === kid);
+    entry = refreshed;
+    jwk = entry.keys.find((k) => k.kid === kid);
   }
 
   if (!jwk) return null;
 
-  // BUG FIX (#GG5): the old cache key was `kid ?? JSON.stringify(jwk)`,
-  // with NO alg component. A second token using the same kid but a
-  // different alg would reuse a CryptoKey imported with the wrong
-  // hash — effectively downgrading the algorithm. Key the cache
-  // by `(cache discriminator, alg)`.
+  // §11.5 + GG5: cache key = `<fetchedAt>\0<alg>\0<discriminator>`.
+  // A later refresh gets a new `fetchedAt` and the lookup finds a
+  // fresh (empty) slot, while any in-flight request holding the
+  // old `entry` still resolves against its original fetchedAt.
   const discriminator = kid ?? JSON.stringify(jwk);
-  const cacheKey = `${alg}\0${discriminator}`;
+  const cacheKey = `${entry.fetchedAt}\0${alg}\0${discriminator}`;
   const cached = jwkKeyCache.get(cacheKey);
   if (cached) return cached;
 

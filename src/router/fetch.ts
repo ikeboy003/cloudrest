@@ -17,19 +17,19 @@
 // error formatting. Stages 11/13/16 layer CORS, rate-limit, cache on
 // top without changing this file's structure.
 
-import type { AppConfig } from '../config/schema';
+import type { AppConfig } from '@/config/schema';
 import type {
   HandlerContext,
   WorkerBindings,
   WorkerExecutionContext,
-} from '../core/context';
-import type { CloudRestError } from '../core/errors';
-import { applyVerbosity } from '../core/errors/types';
-import { parseHttpRequest } from '../http/request';
-import { createRequestTimer } from '../executor/timer';
-import { authenticate } from '../auth/authenticate';
+} from '@/core/context';
+import type { CloudRestError } from '@/core/errors';
+import { applyVerbosity } from '@/core/errors/types';
+import { parseHttpRequest } from '@/http/request';
+import { createRequestTimer } from '@/executor/timer';
+import { authenticate } from '@/auth/authenticate';
 import { pickRoute } from './routes';
-import type { SchemaCache } from '../schema/cache';
+import type { SchemaCache } from '@/schema/cache';
 
 export interface FetchDependencies {
   readonly config: AppConfig;
@@ -109,10 +109,13 @@ export async function handleFetch(
  * failure in the pipeline flows through here; no handler returns a
  * raw `Response` for its own errors.
  *
- * Stage 11 widens this with:
- *  - `CLIENT_ERROR_VERBOSITY=minimal` — already applied below via
- *    `applyVerbosity`;
- *  - Bearer challenge headers on PGRST301/302/303.
+ * STAGE 11 SECURITY FIXES:
+ *  - §11.8 `CLIENT_ERROR_VERBOSITY=minimal` applied via
+ *    `applyVerbosity` — minimal strips `details` and `hint` so a
+ *    public-facing deployment doesn't leak internal error detail.
+ *  - §11.9 `WWW-Authenticate: Bearer` challenge on the three
+ *    auth codes PostgREST uses. The `error` / `error_description`
+ *    parameters match RFC 6750 §3.
  */
 function formatError(error: CloudRestError, config: AppConfig): Response {
   const effective = applyVerbosity(
@@ -125,10 +128,44 @@ function formatError(error: CloudRestError, config: AppConfig): Response {
     details: effective.details,
     hint: effective.hint,
   });
+  const headers = new Headers({
+    'Content-Type': 'application/json; charset=utf-8',
+  });
+  const challenge = bearerChallengeFor(effective);
+  if (challenge !== null) {
+    headers.set('WWW-Authenticate', challenge);
+  }
   return new Response(body, {
     status: effective.httpStatus,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-    },
+    headers,
   });
+}
+
+/**
+ * §11.9 — return the RFC 6750 Bearer challenge string for the
+ * auth-family PGRST codes, or null for every other error.
+ *
+ * - `invalid_token`    for decode failures (PGRST301) and claim
+ *                      problems / expired tokens (PGRST303).
+ * - `insufficient_scope` for anonymous-access-disabled (PGRST302).
+ *
+ * The `error_description` parameter is escaped so embedded quotes
+ * cannot break the header framing.
+ */
+function bearerChallengeFor(error: CloudRestError): string | null {
+  let errorToken: string;
+  switch (error.code) {
+    case 'PGRST301':
+    case 'PGRST303':
+    case 'PGRST304':
+      errorToken = 'invalid_token';
+      break;
+    case 'PGRST302':
+      errorToken = 'insufficient_scope';
+      break;
+    default:
+      return null;
+  }
+  const descr = error.message.replace(/["\\]/g, (c) => `\\${c}`);
+  return `Bearer realm="cloudrest", error="${errorToken}", error_description="${descr}"`;
 }

@@ -5,8 +5,8 @@
 // than silently widening the query to an RPC param (catches typos like
 // `ltee` or `eqq`).
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
 import { splitInValues } from './tokenize';
 import type {
   FtsOperator,

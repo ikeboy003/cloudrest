@@ -9,8 +9,8 @@
 // the end of the dot-split until a non-modifier is found — this avoids
 // confusing the arrows with dot separators.
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
 import { parseField } from './json-path';
 import { splitTopLevel } from './tokenize';
 import type { NullOrder, OrderDirection, OrderTerm } from './types/order';

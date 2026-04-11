@@ -3,12 +3,12 @@
 // Only field items are projected; embed items are handled by the embed
 // builder (stage 6) and do not appear in the top-level projection.
 
-import { parseErrors, type CloudRestError } from '../../core/errors';
-import { err, ok, type Result } from '../../core/result';
-import type { QualifiedIdentifier } from '../../http/request';
-import type { SelectItem } from '../../parser/types/select';
-import { escapeIdent, qualifiedIdentifierToSql } from '../identifiers';
-import type { SqlBuilder } from '../sql';
+import { parseErrors, type CloudRestError } from '@/core/errors';
+import { err, ok, type Result } from '@/core/result';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { SelectItem } from '@/parser/types/select';
+import { escapeIdent, qualifiedColumnToSql } from '@/builder/identifiers';
+import type { SqlBuilder } from '@/builder/sql';
 import { renderField } from './field';
 import { isValidCast } from './operators';
 
@@ -86,7 +86,7 @@ export function renderSelectProjectionAndGrouping(
 ): Result<RenderedProjection, CloudRestError> {
   if (select.length === 0) {
     return ok({
-      projectionSql: qualifiedIdentifierToSql(target) + '.*',
+      projectionSql: qualifiedColumnToSql(target, '*'),
       groupByFieldSqls: [],
       groupByFieldNames: [],
       hasAggregates: false,
@@ -98,7 +98,7 @@ export function renderSelectProjectionAndGrouping(
   );
   if (fieldItems.length === 0) {
     return ok({
-      projectionSql: qualifiedIdentifierToSql(target) + '.*',
+      projectionSql: qualifiedColumnToSql(target, '*'),
       groupByFieldSqls: [],
       groupByFieldNames: [],
       hasAggregates: false,

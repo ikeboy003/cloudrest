@@ -11,11 +11,11 @@
 // filter.ts, so HAVING and WHERE use exactly the same op coverage and
 // cannot drift.
 
-import { parseErrors, type CloudRestError } from '../../core/errors';
-import { err, ok, type Result } from '../../core/result';
-import type { QualifiedIdentifier } from '../../http/request';
-import type { HavingClause } from '../../parser/types/having';
-import type { SqlBuilder } from '../sql';
+import { parseErrors, type CloudRestError } from '@/core/errors';
+import { err, ok, type Result } from '@/core/result';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { HavingClause } from '@/parser/types/having';
+import type { SqlBuilder } from '@/builder/sql';
 import { renderField } from './field';
 import { renderOpExprOnExpr } from './filter';
 

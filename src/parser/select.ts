@@ -18,8 +18,8 @@
 // a field list containing an aggregate, NOT an embed of a table named
 // `avg`. The allowlist check below runs BEFORE the embed branch.
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
 import { parseField } from './json-path';
 import { parseOrder } from './order';
 import { splitTopLevel, strictParseNonNegInt } from './tokenize';

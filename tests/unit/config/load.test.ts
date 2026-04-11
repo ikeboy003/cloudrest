@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { loadConfig } from '../../../src/config/load';
-import { testEnv } from '../../fixtures/env';
+import { loadConfig } from '@/config/load';
+import { testEnv } from '@tests/fixtures/env';
 
 describe('loadConfig — happy path defaults', () => {
   it('returns a grouped AppConfig for minimal env', () => {

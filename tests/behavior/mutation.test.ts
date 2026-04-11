@@ -6,16 +6,16 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { handleFetch } from '../../src/router/fetch';
+import { handleFetch } from '@/router/fetch';
 import {
   __installClientForTest,
   __resetClientsForTest,
-} from '../../src/executor/client';
-import { buildSchemaCacheFromTables } from '../../src/schema/introspect';
-import { makeTable } from '../fixtures/schema';
-import { makeTestConfig } from '../fixtures/config';
-import { makeFakeSqlClient, type FakeSqlClient } from '../fixtures/fake-sql';
-import type { WorkerBindings } from '../../src/core/context';
+} from '@/executor/client';
+import { buildSchemaCacheFromTables } from '@/schema/introspect';
+import { makeTable } from '@tests/fixtures/schema';
+import { makeTestConfig } from '@tests/fixtures/config';
+import { makeFakeSqlClient, type FakeSqlClient } from '@tests/fixtures/fake-sql';
+import type { WorkerBindings } from '@/core/context';
 
 const CONNECTION_STRING = 'postgres://fake/test';
 
@@ -99,8 +99,12 @@ describe('POST /books — insert', () => {
     const mainCall = client.calls.find((c) => c.sql.includes('INSERT INTO'));
     expect(mainCall).toBeDefined();
     expect(mainCall!.sql).toContain('"public"."books"');
-    expect(mainCall!.sql).toContain('json_to_record($1::json)');
-    expect(mainCall!.params).toEqual(['{"title":"Hello"}']);
+    // RUNTIME override: JSON body is inlined (see
+    // builder/mutation.ts header for postgres.js limitation).
+    expect(mainCall!.sql).toContain('jsonb_to_record(');
+    expect(mainCall!.sql).toContain(`'{"title":"Hello"}'::jsonb`);
+    // No bind params on the main query — the body is inlined.
+    expect(mainCall!.params ?? []).toEqual([]);
   });
 
   it('rejects an unknown column in the payload with PGRST204', async () => {

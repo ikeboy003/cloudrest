@@ -11,9 +11,9 @@ import {
   parseFormPayload,
   parseCsvPayload,
   parsePayload,
-} from '../../../src/parser/payload';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
-import { makeTestConfig } from '../../fixtures/config';
+} from '@/parser/payload';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
+import { makeTestConfig } from '@tests/fixtures/config';
 
 describe('parseJsonPayload', () => {
   it('accepts a single object and records its keys', () => {

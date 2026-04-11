@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { loadConfig } from '../../../src/config/load';
-import { parseHttpRequest } from '../../../src/http/request';
-import { testEnv } from '../../fixtures/env';
+import { loadConfig } from '@/config/load';
+import { parseHttpRequest } from '@/http/request';
+import { testEnv } from '@tests/fixtures/env';
 
 function config() {
   const loaded = loadConfig(testEnv({ DB_SCHEMAS: 'public,api' }));

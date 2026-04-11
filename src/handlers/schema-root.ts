@@ -9,12 +9,12 @@
 // go through `runQuery`. It's a pure function of the in-memory
 // schema cache.
 
-import { err, ok, type Result } from '../core/result';
-import type { CloudRestError } from '../core/errors';
-import type { HandlerContext } from '../core/context';
-import type { ParsedHttpRequest } from '../http/request';
-import type { RawDomainResponse } from '../response/build';
-import { contentTypeFor, finalizeResponse } from '../response/finalize';
+import { err, ok, type Result } from '@/core/result';
+import type { CloudRestError } from '@/core/errors';
+import type { HandlerContext } from '@/core/context';
+import type { ParsedHttpRequest } from '@/http/request';
+import type { RawDomainResponse } from '@/response/build';
+import { contentTypeFor, finalizeResponse } from '@/response/finalize';
 
 export async function handleSchemaRoot(
   httpRequest: ParsedHttpRequest,

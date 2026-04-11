@@ -5,10 +5,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { buildRpcQuery } from '../../../src/builder/rpc';
-import type { RpcPlan } from '../../../src/planner/rpc-plan';
-import { makeRoutine } from '../../fixtures/routines';
-import { expectOk } from '../../fixtures/assert-result';
+import { buildRpcQuery } from '@/builder/rpc';
+import type { RpcPlan } from '@/planner/rpc-plan';
+import { makeRoutine } from '@tests/fixtures/routines';
+import { expectOk } from '@tests/fixtures/assert-result';
 
 function plan(overrides: Partial<RpcPlan> = {}): RpcPlan {
   const routine = makeRoutine({
@@ -27,6 +27,7 @@ function plan(overrides: Partial<RpcPlan> = {}): RpcPlan {
     logic: [],
     order: [],
     range: { offset: 0, limit: null },
+    select: [],
     returnPreference: 'full',
     returnsScalar: true,
     returnsSetOfScalar: false,
@@ -94,7 +95,7 @@ describe('buildRpcQuery — single unnamed arg', () => {
 });
 
 describe('buildRpcQuery — composite + setOf returns', () => {
-  it('composite: emits pgrst_call.*', () => {
+  it('composite: unpacks record columns with SELECT * FROM fn(...)', () => {
     const routine = makeRoutine({
       name: 'get_books',
       params: [],
@@ -112,7 +113,10 @@ describe('buildRpcQuery — composite + setOf returns', () => {
         }),
       ),
     );
-    expect(built.sql).toContain('SELECT pgrst_call.* FROM "public"."get_books"()');
+    // New shape: one subquery, bare `SELECT * FROM fn()` so the
+    // function's record columns expose as row columns for
+    // downstream filter/order/limit (LOCAL_SCOPE).
+    expect(built.sql).toContain('SELECT * FROM "public"."get_books"()');
     expect(built.sql).toContain("coalesce(json_agg(t), '[]')::text");
   });
 

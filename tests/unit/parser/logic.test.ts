@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseLogicTree } from '../../../src/parser/logic';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
+import { parseLogicTree } from '@/parser/logic';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 describe('parseLogicTree — flat', () => {
   it('parses a two-child and=(...)', () => {

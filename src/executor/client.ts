@@ -1,22 +1,31 @@
 // Postgres client factory.
 //
-// INVARIANT (critique #64): one long-lived `postgres.js` client per
-// isolate — NOT per request. The old code created a new client on
-// every fetch and called `sql.end({ timeout: 1 })` after each
-// transaction, which burned connections on every request and caused
-// Hyperdrive pool thrash.
+// RUNTIME: Cloudflare Workers forbid sharing I/O objects across
+// request handlers — a stream, socket, or `postgres.js` connection
+// created inside request A cannot be used from request B. This
+// makes CONSTITUTION §4.3 ("one long-lived client per isolate")
+// impossible on Workers: a memoized client hits the runtime error
+// "Cannot perform I/O on behalf of a different request" the second
+// time a different request touches it.
 //
-// The rewrite memoizes the client on a module-level map keyed by the
-// raw Hyperdrive connection string. A stale client (e.g. after an
-// isolate recycles) is not a concern — isolate death clears the map
-// along with everything else.
+// Instead we create a fresh `postgres.js` client per request and
+// rely on Hyperdrive to pool the underlying TCP sessions. The
+// short-lived client is handed to `runTransaction`, which issues
+// its queries and returns; the request handler then calls
+// `closeClient` to tear it down. `Hyperdrive` handles the actual
+// connection reuse at the edge.
 //
-// SECURITY (CONSTITUTION §1.3): the `postgres` import is dynamic so
-// the package stays a runtime-only dependency. Neither tests nor
-// typecheck pull it in. A bundler that statically analyzes imports
-// can still tree-shake around the dynamic form.
+// RUNTIME: the `postgres` import is static so `wrangler` bundles
+// it into the Worker. The package ships its own Node-flavored
+// types that pull in Buffer and net; the ambient shim in
+// `src/types/postgres.d.ts` keeps the types narrow.
+//
+// INVARIANT: tests never touch the real `postgres()` factory.
+// `__installClientForTest` installs a fake into the test-only
+// registry, and `getPostgresClient` checks that registry FIRST.
 
-import type { Env } from '../config/env';
+import postgres from 'postgres';
+import type { Env } from '@/config/env';
 import type { SqlClient } from './types';
 
 /**
@@ -38,84 +47,78 @@ export const DEFAULT_POOL_SETTINGS: PostgresPoolSettings = Object.freeze({
   preparedStatements: false,
 });
 
-// ----- Isolate-scoped memoization --------------------------------------
+// ----- Test-only overrides ---------------------------------------------
+//
+// Tests install a fake client via `__installClientForTest` and
+// `getPostgresClient` short-circuits to it. The fake is keyed on
+// the connection string so one test can swap one connection out
+// without touching others. The real `postgres(...)` factory never
+// runs under vitest because the fake is always present before the
+// first `getPostgresClient` call.
 
-interface ClientEntry {
+interface TestFixture {
   readonly client: SqlClient;
-  /**
-   * The connection string the client was built against. Swapping
-   * Hyperdrive bindings mid-isolate should never happen, but if it
-   * did, the entry would be invalidated.
-   */
   readonly connectionString: string;
 }
 
-const clients = new Map<string, ClientEntry>();
+const testFixtures = new Map<string, TestFixture>();
+
+export function __installClientForTest(
+  connectionString: string,
+  client: SqlClient,
+): void {
+  testFixtures.set(connectionString, { client, connectionString });
+}
+
+export function __resetClientsForTest(): void {
+  testFixtures.clear();
+}
+
+// ----- Per-request client ----------------------------------------------
 
 /**
- * Build (or reuse) the postgres.js client for this isolate. The key
- * is the connection string — not the Env object — because Env can be
- * a fresh reference on every fetch but the underlying binding is
- * stable.
+ * Build a postgres.js client for the current request. Callers MUST
+ * pair this with `closeClient` in a `try`/`finally` so the TCP
+ * session is returned to Hyperdrive's pool when the request ends.
+ *
+ * RUNTIME: sharing a client across requests is forbidden on
+ * Workers. Each request gets its own short-lived client; Hyperdrive
+ * does the actual connection pooling at the edge so this is not
+ * the per-request TCP round-trip it looks like.
  */
 export async function getPostgresClient(
   env: Env,
   settings: PostgresPoolSettings = DEFAULT_POOL_SETTINGS,
 ): Promise<SqlClient> {
   const connectionString = env.HYPERDRIVE.connectionString;
-  const existing = clients.get(connectionString);
-  if (existing) return existing.client;
+  const fixture = testFixtures.get(connectionString);
+  if (fixture) return fixture.client;
 
-  const rawClient = await loadPostgres(connectionString, {
+  const rawClient = postgres(connectionString, {
     prepare: settings.preparedStatements,
     max: settings.max,
     idle_timeout: settings.idleTimeoutSeconds,
     connect_timeout: Math.max(1, Math.ceil(settings.connectTimeoutMs / 1000)),
   });
-  const client = rawClient as unknown as SqlClient;
-  clients.set(connectionString, { client, connectionString });
-  return client;
+  return rawClient as unknown as SqlClient;
 }
 
 /**
- * Dynamic import of the `postgres` package. Kept in its own function so
- * the package stays a runtime-only dependency — neither typecheck nor
- * the test harness needs it installed. The signature is intentionally
- * `unknown` because the rewrite only ever uses `SqlClient`'s two
- * methods on the returned value.
- *
- * Runtime callers must have `postgres` installed as a prod dep; tests
- * bypass this path via `__installClientForTest`.
+ * Tear down a per-request client. A short timeout lets any
+ * in-flight work drain quickly. Test fixtures ignore `end` because
+ * they share their mock across a test run.
  */
-async function loadPostgres(
-  connectionString: string,
-  opts: Record<string, unknown>,
-): Promise<unknown> {
-  // The string-concat round trip keeps bundler static analysis from
-  // trying to resolve `postgres` at build time. Cloudflare's bundler
-  // resolves it at runtime when the Worker actually runs.
-  const moduleName = 'postgres';
-  const mod = (await import(/* @vite-ignore */ moduleName)) as {
-    default: (url: string, opts: Record<string, unknown>) => unknown;
-  };
-  return mod.default(connectionString, opts);
-}
-
-// ----- Test hooks ------------------------------------------------------
-
-/**
- * Replace or install a mock client for a given connection string.
- * Intended for unit tests that want to drive the executor without
- * touching the dynamic `postgres` import.
- */
-export function __installClientForTest(
-  connectionString: string,
-  client: SqlClient,
-): void {
-  clients.set(connectionString, { client, connectionString });
-}
-
-/** Clear every memoized client. Intended for unit tests. */
-export function __resetClientsForTest(): void {
-  clients.clear();
+export async function closeClient(client: SqlClient): Promise<void> {
+  // `end` is optional on the fake (tests don't implement it). Call
+  // only when it exists so `closeClient(fakeClient)` is a no-op.
+  const endFn = (client as unknown as { end?: (opts?: { timeout?: number }) => Promise<void> }).end;
+  if (typeof endFn === 'function') {
+    try {
+      await endFn.call(client, { timeout: 1 });
+    } catch {
+      // Swallow teardown errors — the transaction already committed
+      // or rolled back at this point; failing teardown must not
+      // change the user-visible outcome.
+    }
+  }
 }

@@ -29,9 +29,9 @@
 //     [LIMIT N] [OFFSET N]
 //   ) t
 
-import { parseErrors, type CloudRestError } from '../core/errors';
-import { err, ok, type Result } from '../core/result';
-import type { ReadPlan, SearchPlan, VectorPlan } from '../planner/read-plan';
+import { parseErrors, type CloudRestError } from '@/core/errors';
+import { err, ok, type Result } from '@/core/result';
+import type { ReadPlan, SearchPlan, VectorPlan } from '@/planner/read-plan';
 import {
   escapeIdent,
   pgFmtLit,

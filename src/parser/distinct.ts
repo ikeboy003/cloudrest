@@ -5,8 +5,8 @@
 // cache and producing a `ReadPlan.distinct` field — this is a critique
 // fix for IDENTIFIER-5 (distinct columns were not schema-validated).
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
 import { splitTopLevel } from './tokenize';
 
 export type DistinctColumns = readonly string[];

@@ -7,7 +7,7 @@
 // Groups added later (realtime, webhooks, observability, presets, admin)
 // widen this interface when their stage lands.
 
-import type { ErrorVerbosity } from '../core/errors';
+import type { ErrorVerbosity } from '@/core/errors';
 
 // ----- Group types ------------------------------------------------------
 
@@ -125,6 +125,27 @@ export interface ObservabilityConfig {
  * INVARIANT: every field is readonly. Mutation at runtime is a bug —
  * config changes at boot only.
  */
+/**
+ * Per-table edge-cache entry. `claimsInKey` is the explicit list of
+ * JWT claim names folded into the cache key. An empty array means
+ * "role only"; the RLS fingerprint still includes the resolved role.
+ */
+export interface CacheTableEntry {
+  readonly ttlSeconds: number;
+  readonly claimsInKey: readonly string[];
+}
+
+/**
+ * Edge-cache config — STAGE 13. The entire section is optional so a
+ * deployment that doesn't set CACHE_TABLE_TTLS gets NO caching, not
+ * a "cache everything" default.
+ */
+export interface CacheConfig {
+  readonly defaultTtlSeconds: number;
+  /** Keyed by `schema.table`. Unlisted tables are never cached. */
+  readonly tables: Readonly<Record<string, CacheTableEntry>>;
+}
+
 export interface AppConfig {
   readonly database: DatabaseConfig;
   readonly auth: AuthConfig;
@@ -132,6 +153,8 @@ export interface AppConfig {
   readonly limits: LimitsConfig;
   readonly openApi: OpenApiConfig;
   readonly observability: ObservabilityConfig;
+  /** Edge cache — opt-in per table. `undefined` = no caching. */
+  readonly cache?: CacheConfig;
 }
 
 // ----- Config errors ----------------------------------------------------

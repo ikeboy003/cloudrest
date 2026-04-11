@@ -3,11 +3,11 @@
 // Turns a `Filter` (field + OpExpr) into a SQL boolean expression.
 // Every value flows through SqlBuilder.addParam.
 
-import { parseErrors, type CloudRestError } from '../../core/errors';
-import { err, ok, type Result } from '../../core/result';
-import type { QualifiedIdentifier } from '../../http/request';
-import type { Field, Filter, OpExpr } from '../../parser/types';
-import type { SqlBuilder } from '../sql';
+import { parseErrors, type CloudRestError } from '@/core/errors';
+import { err, ok, type Result } from '@/core/result';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { Field, Filter, OpExpr } from '@/parser/types';
+import type { SqlBuilder } from '@/builder/sql';
 import { renderField } from './field';
 import {
   FTS_OPS,

@@ -9,14 +9,14 @@
 // test output; asserting-as-you-go would hide the bugs we're hunting.
 
 import { describe, expect, it } from 'vitest';
-import { splitTopLevel, splitInValues, strictParseInt, strictParseNonNegInt } from '../../../src/parser/tokenize';
-import { parseOpExpr } from '../../../src/parser/operators';
-import { parseSelect } from '../../../src/parser/select';
-import { parseOrder } from '../../../src/parser/order';
-import { parseLogicTree } from '../../../src/parser/logic';
-import { parseField } from '../../../src/parser/json-path';
-import { parseHavingClauses } from '../../../src/parser/having';
-import { parseFilter } from '../../../src/parser/filter';
+import { splitTopLevel, splitInValues, strictParseInt, strictParseNonNegInt } from '@/parser/tokenize';
+import { parseOpExpr } from '@/parser/operators';
+import { parseSelect } from '@/parser/select';
+import { parseOrder } from '@/parser/order';
+import { parseLogicTree } from '@/parser/logic';
+import { parseField } from '@/parser/json-path';
+import { parseHavingClauses } from '@/parser/having';
+import { parseFilter } from '@/parser/filter';
 
 const log = (label: string, value: unknown): void => {
   console.log(label, JSON.stringify(value));

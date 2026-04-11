@@ -12,8 +12,8 @@
 // be included from pure type consumers (handlers, tests) without
 // dragging in `postgres`.
 
-import type { CloudRestError } from '../core/errors';
-import type { BuiltQuery } from '../builder/types';
+import type { CloudRestError } from '@/core/errors';
+import type { BuiltQuery } from '@/builder/types';
 
 /** A single row from the main query, shaped as a plain dictionary. */
 export type ResultRow = Readonly<Record<string, unknown>>;

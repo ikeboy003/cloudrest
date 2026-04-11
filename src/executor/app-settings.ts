@@ -11,7 +11,7 @@
 // pair so the transaction runner can feed it straight into
 // `tx.unsafe(sql, params)` — the same path the main query takes.
 
-import type { DatabaseConfig } from '../config/schema';
+import type { DatabaseConfig } from '@/config/schema';
 
 export interface AppSettingsBuilt {
   readonly sql: string;

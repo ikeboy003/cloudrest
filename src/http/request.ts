@@ -12,9 +12,9 @@
 // INVARIANT: The raw Request is never mutated. Every derived value is
 // returned in the parsed shape.
 
-import type { AppConfig } from '../config/schema';
-import { err, ok, type Result } from '../core/result';
-import { mediaErrors, parseErrors, type CloudRestError } from '../core/errors';
+import type { AppConfig } from '@/config/schema';
+import { err, ok, type Result } from '@/core/result';
+import { mediaErrors, parseErrors, type CloudRestError } from '@/core/errors';
 import { parseAcceptHeader, parseContentTypeHeader } from './media/parse';
 import type { MediaType } from './media/types';
 import { parsePrefer, type Preferences } from './preferences';

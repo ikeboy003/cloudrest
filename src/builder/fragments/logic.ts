@@ -3,11 +3,11 @@
 // Recursively renders an `and/or` tree into a parenthesized boolean
 // expression. Leaves go through renderFilter.
 
-import type { CloudRestError } from '../../core/errors';
-import { ok, type Result } from '../../core/result';
-import type { QualifiedIdentifier } from '../../http/request';
-import type { LogicTree } from '../../parser/types/logic';
-import type { SqlBuilder } from '../sql';
+import type { CloudRestError } from '@/core/errors';
+import { ok, type Result } from '@/core/result';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { LogicTree } from '@/parser/types/logic';
+import type { SqlBuilder } from '@/builder/sql';
 import { renderFilter } from './filter';
 
 export function renderLogicTree(

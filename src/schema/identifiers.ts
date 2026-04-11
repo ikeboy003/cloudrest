@@ -9,4 +9,4 @@ export {
   pgFmtLit,
   qualifiedColumnToSql,
   qualifiedIdentifierToSql,
-} from '../builder/identifiers';
+} from '@/builder/identifiers';

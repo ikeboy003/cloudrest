@@ -6,7 +6,7 @@ import {
   pgFmtLit,
   qualifiedColumnToSql,
   qualifiedIdentifierToSql,
-} from '../../../src/builder/identifiers';
+} from '@/builder/identifiers';
 
 describe('escapeIdent', () => {
   it('wraps plain identifiers in double quotes', () => {

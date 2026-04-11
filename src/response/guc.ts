@@ -11,9 +11,9 @@
 // via GUC would break response framing / security policy. The value
 // is additionally CR/LF-stripped to prevent header-injection.
 
-import { err, ok, type Result } from '../core/result';
-import type { CloudRestError } from '../core/errors';
-import { makeError } from '../core/errors/types';
+import { err, ok, type Result } from '@/core/result';
+import type { CloudRestError } from '@/core/errors';
+import { makeError } from '@/core/errors/types';
 
 /**
  * Parsed GUC override bundle — the shape every downstream consumer

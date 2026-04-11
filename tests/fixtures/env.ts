@@ -4,7 +4,7 @@
 // binding stubs in every test file. Override any field with the `overrides`
 // parameter.
 
-import type { Env } from '../../src/config/env';
+import type { Env } from '@/config/env';
 
 export function testEnv(overrides: Partial<Env> = {}): Env {
   return {

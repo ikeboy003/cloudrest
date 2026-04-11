@@ -12,7 +12,7 @@ import type {
   ResultRow,
   SqlClient,
   SqlTransaction,
-} from '../../src/executor/types';
+} from '@/executor/types';
 
 export interface ScriptedCall {
   readonly sql: string;

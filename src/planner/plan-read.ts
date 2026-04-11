@@ -15,17 +15,17 @@
 //  - ?vector= / ?vector.column= / ?vector.op=   → VectorPlan;
 //  - aggregate column validation (select=avg(rating) requires `rating`).
 
-import { err, ok, type Result } from '../core/result';
+import { err, ok, type Result } from '@/core/result';
 import {
   fuzzyFind,
   parseErrors,
   schemaErrors,
   type CloudRestError,
-} from '../core/errors';
-import type { QualifiedIdentifier } from '../http/request';
-import type { Preferences } from '../http/preferences';
-import type { MediaTypeId } from '../http/media/types';
-import { ALL_ROWS, type NonnegRange } from '../http/range';
+} from '@/core/errors';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { Preferences } from '@/http/preferences';
+import type { MediaTypeId } from '@/http/media/types';
+import { ALL_ROWS, type NonnegRange } from '@/http/range';
 import type {
   EmbedPath,
   Filter,
@@ -33,11 +33,11 @@ import type {
   OrderTerm,
   ParsedQueryParams,
   SelectItem,
-} from '../parser/types';
-import type { SchemaCache } from '../schema/cache';
-import { findTable } from '../schema/cache';
-import type { Table } from '../schema/table';
-import { findColumn } from '../schema/table';
+} from '@/parser/types';
+import type { SchemaCache } from '@/schema/cache';
+import { findTable } from '@/schema/cache';
+import type { Table } from '@/schema/table';
+import { findColumn } from '@/schema/table';
 import type { DistinctPlan, ReadPlan } from './read-plan';
 import { planEmbeds, type EmbedNode } from './embed-plan';
 import { planSearch } from './search';

@@ -7,7 +7,7 @@
 // INVARIANT: loadConfig collects ALL errors, not just the first, so an
 // operator sees every misconfiguration at once.
 
-import { err, ok, type Result } from '../core/result';
+import { err, ok, type Result } from '@/core/result';
 import type { Env } from './env';
 import type {
   AppConfig,
@@ -22,8 +22,8 @@ import type {
   OpenApiMode,
   TxEndMode,
 } from './schema';
-import type { ErrorVerbosity } from '../core/errors';
-import { parseClaimPath } from '../auth/claims';
+import type { ErrorVerbosity } from '@/core/errors';
+import { parseClaimPath } from '@/auth/claims';
 
 // ----- Small typed helpers ---------------------------------------------
 //

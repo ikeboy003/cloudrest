@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseOrder } from '../../../src/parser/order';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
+import { parseOrder } from '@/parser/order';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 describe('parseOrder', () => {
   it('parses a plain column', () => {

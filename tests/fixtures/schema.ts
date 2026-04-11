@@ -4,14 +4,14 @@
 // introspection. Every test that needs schema-aware behavior
 // (planner, builder, handler) uses `makeSchema` below.
 
-import type { SchemaCache } from '../../src/schema/cache';
-import type { Column, Table } from '../../src/schema/table';
-import { identifierKey } from '../../src/schema/cache';
+import type { SchemaCache } from '@/schema/cache';
+import type { Column, Table } from '@/schema/table';
+import { identifierKey } from '@/schema/cache';
 import type {
   Relationship,
   RelationshipsMap,
-} from '../../src/schema/relationship';
-import { relationshipKey } from '../../src/schema/relationship';
+} from '@/schema/relationship';
+import { relationshipKey } from '@/schema/relationship';
 
 export interface FixtureColumn {
   readonly name: string;

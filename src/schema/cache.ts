@@ -6,7 +6,7 @@
 // Stage 6a populated `tables`. Stage 6b adds `relationships` for embed
 // planning. Routines arrive with Stage 10.
 
-import type { QualifiedIdentifier } from '../http/request';
+import type { QualifiedIdentifier } from '@/http/request';
 import type { Table, TablesMap } from './table';
 import type { RelationshipsMap } from './relationship';
 import type { RoutinesMap } from './routine';

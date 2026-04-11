@@ -4,15 +4,15 @@
 // old code inlined them with single-quote escaping, which fails under
 // `standard_conforming_strings=off`. Critique #11.
 
-import { parseErrors, type CloudRestError } from '../../core/errors';
-import { err, ok, type Result } from '../../core/result';
-import type { QualifiedIdentifier } from '../../http/request';
-import type { Field, JsonPath } from '../../parser/types/field';
+import { parseErrors, type CloudRestError } from '@/core/errors';
+import { err, ok, type Result } from '@/core/result';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { Field, JsonPath } from '@/parser/types/field';
 import {
   qualifiedColumnToSql,
   qualifiedIdentifierToSql,
-} from '../identifiers';
-import type { SqlBuilder } from '../sql';
+} from '@/builder/identifiers';
+import type { SqlBuilder } from '@/builder/sql';
 
 /**
  * Render a `Field` as a SQL expression. Returns the qualified column

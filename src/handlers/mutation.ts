@@ -9,23 +9,24 @@
 // forms are deferred — they wire in on top of this module without
 // restructuring it.
 
-import { err, type Result } from '../core/result';
-import { mediaErrors, parseErrors, type CloudRestError } from '../core/errors';
-import type { HandlerContext } from '../core/context';
-import type { ParsedHttpRequest } from '../http/request';
-import { parseQueryParams } from '../parser/query-params';
-import { parsePayload } from '../parser/payload';
-import { planMutation } from '../planner/plan-mutation';
-import { buildMutationQuery } from '../builder/mutation';
-import { runQuery } from '../executor/execute';
-import type { RawDomainResponse } from '../response/build';
+import { err, type Result } from '@/core/result';
+import { mediaErrors, parseErrors, type CloudRestError } from '@/core/errors';
+import type { HandlerContext } from '@/core/context';
+import type { ParsedHttpRequest } from '@/http/request';
+import { parseQueryParams } from '@/parser/query-params';
+import { parsePayload } from '@/parser/payload';
+import { planMutation } from '@/planner/plan-mutation';
+import { buildMutationQuery } from '@/builder/mutation';
+import { runQuery } from '@/executor/execute';
+import { buildRequestPrelude } from '@/executor/request-prelude';
+import type { RawDomainResponse } from '@/response/build';
 import {
   contentTypeFor,
   finalizeResponse,
   type MediaTypeId,
-} from '../response/finalize';
-import { formatBody } from '../http/media/format';
-import { negotiateOutputMedia } from '../http/media/negotiate';
+} from '@/response/finalize';
+import { formatBody } from '@/http/media/format';
+import { negotiateOutputMedia } from '@/http/media/negotiate';
 
 const MUTATION_OFFERED_MEDIA: readonly MediaTypeId[] = [
   'json',
@@ -108,7 +109,21 @@ export async function handleMutation(
   //    `rollbackPreferred` option, and `Prefer: max-affected=N` via
   //    the `maxAffected` option which the executor enforces by
   //    rolling back and surfacing PGRST124 when exceeded.
+  //
+  //    BUG FIX: same as the read handler — the mutation path now
+  //    threads the authenticated role, per-request claim GUCs, and
+  //    the `DB_PRE_REQUEST` hook through `runQuery`. Without this
+  //    RLS and per-claim policy checks were running against the
+  //    connection role rather than the JWT role.
+  const prelude = buildRequestPrelude({
+    auth: context.auth,
+    config: context.config,
+    httpRequest,
+  });
   const execResult = await runQuery(context, built.value, {
+    roleSql: prelude.roleSql,
+    preQuerySql: prelude.preQuerySql,
+    preRequestSql: prelude.preRequestSql,
     rollbackPreferred:
       httpRequest.preferences.preferTransaction === 'rollback' ||
       context.config.database.txEnd === 'rollback',
@@ -164,7 +179,10 @@ function computeBaseStatus(
 /**
  * Lightweight mutation-response shaper — mirrors `buildReadResponse`
  * but without needing a `ReadPlan`. The wrapped mutation SQL projects
- * the same column names (`total_result_set`, `page_total`, `body`).
+ * the same column names (`total_result_set`, `page_total`, `body`)
+ * plus a `header` column (the Location-header key=value pairs for
+ * INSERT/UPSERT) which becomes `locationQuery` on the domain
+ * response.
  */
 function shapeDomainResponse(result: {
   readonly rows: readonly Readonly<Record<string, unknown>>[];
@@ -188,5 +206,26 @@ function shapeDomainResponse(result: {
     pageTotal,
     responseHeaders: result.responseHeaders,
     responseStatus: result.responseStatus,
+    locationQuery: extractLocationQuery(row),
   };
+}
+
+/**
+ * Pull the `header` column off the first row of a mutation result
+ * and flatten it into a `key=value&key=value` query-string fragment.
+ * The builder emits this as `text[]` (array of `"col=eq.val"`
+ * entries); a missing or empty array means "no primary key" and
+ * the finalizer will skip the Location header.
+ */
+function extractLocationQuery(
+  row: Record<string, unknown> | undefined,
+): string | null {
+  if (row === undefined) return null;
+  const header = row['header'];
+  if (!Array.isArray(header) || header.length === 0) return null;
+  const parts = header.filter(
+    (part): part is string => typeof part === 'string' && part.length > 0,
+  );
+  if (parts.length === 0) return null;
+  return parts.join('&');
 }

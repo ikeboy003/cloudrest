@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parsePrefer,
   preferenceAppliedHeader,
-} from '../../../src/http/preferences';
+} from '@/http/preferences';
 
 function headersOf(prefer: string): Headers {
   const h = new Headers();

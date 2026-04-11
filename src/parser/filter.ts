@@ -10,8 +10,8 @@
 // aware splitter that only treats dots OUTSIDE quoted regions AND
 // before any arrow token as embed separators.
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
 import { parseField } from './json-path';
 import { parseOpExpr } from './operators';
 import type { EmbedPath } from './types/embed';

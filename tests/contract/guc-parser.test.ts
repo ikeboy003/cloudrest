@@ -11,8 +11,8 @@ import { describe, expect, it } from 'vitest';
 import {
   EMPTY_GUC_OVERRIDES,
   parseResponseGucHeaders,
-} from '../../src/response/guc';
-import { expectErr, expectOk } from '../fixtures/assert-result';
+} from '@/response/guc';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 describe('parseResponseGucHeaders — null handling', () => {
   it('returns EMPTY_GUC_OVERRIDES when both GUCs are absent', () => {

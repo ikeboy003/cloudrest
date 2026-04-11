@@ -12,8 +12,8 @@
 // its DEFAULT). For `missing=null` the planner instead includes
 // every non-defaulted column and lets the body's NULL flow through.
 
-import type { QualifiedIdentifier } from '../http/request';
-import type { Filter, LogicTree } from '../parser/types';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { Filter, LogicTree } from '@/parser/types';
 
 export type WrapShape = 'result' | 'cteOnly';
 

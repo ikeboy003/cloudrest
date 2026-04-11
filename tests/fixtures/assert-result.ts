@@ -17,7 +17,7 @@
 // the failure message tells you exactly what went wrong instead of
 // "expected 42 but got undefined".
 
-import type { Result } from '../../src/core/result';
+import type { Result } from '@/core/result';
 
 /**
  * Assert that a Result is Ok and return the value. Throws with a

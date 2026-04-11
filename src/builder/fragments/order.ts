@@ -1,11 +1,11 @@
 // Order clause and limit/offset rendering.
 
-import { parseErrors, type CloudRestError } from '../../core/errors';
-import { err, ok, type Result } from '../../core/result';
-import type { QualifiedIdentifier } from '../../http/request';
-import type { OrderTerm } from '../../parser/types/order';
-import { escapeIdent } from '../identifiers';
-import type { SqlBuilder } from '../sql';
+import { parseErrors, type CloudRestError } from '@/core/errors';
+import { err, ok, type Result } from '@/core/result';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { OrderTerm } from '@/parser/types/order';
+import { escapeIdent } from '@/builder/identifiers';
+import type { SqlBuilder } from '@/builder/sql';
 import { renderField } from './field';
 
 /**

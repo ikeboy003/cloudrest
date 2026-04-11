@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildReadQuery } from '../../../src/builder/read';
-import type { ReadPlan } from '../../../src/planner/read-plan';
-import { parseFilter } from '../../../src/parser/filter';
-import { parseOrder } from '../../../src/parser/order';
-import { parseSelect } from '../../../src/parser/select';
-import { expectOk } from '../../fixtures/assert-result';
+import { buildReadQuery } from '@/builder/read';
+import type { ReadPlan } from '@/planner/read-plan';
+import { parseFilter } from '@/parser/filter';
+import { parseOrder } from '@/parser/order';
+import { parseSelect } from '@/parser/select';
+import { expectOk } from '@tests/fixtures/assert-result';
 
 // ----- Plan builder helper ---------------------------------------------
 

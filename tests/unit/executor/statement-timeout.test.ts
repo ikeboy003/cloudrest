@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { renderStatementTimeoutSql } from '../../../src/executor/statement-timeout';
+import { renderStatementTimeoutSql } from '@/executor/statement-timeout';
 
 describe('renderStatementTimeoutSql', () => {
   it('renders the config value as a SET LOCAL statement', () => {

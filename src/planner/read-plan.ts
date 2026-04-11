@@ -10,17 +10,17 @@
 // render pass in builder/read.ts. See critique findings #2, #12, #72,
 // #77, #78.
 
-import type { QualifiedIdentifier } from '../http/request';
-import type { CountPreference } from '../http/preferences';
-import type { MediaTypeId } from '../http/media/types';
-import type { NonnegRange } from '../http/range';
+import type { QualifiedIdentifier } from '@/http/request';
+import type { CountPreference } from '@/http/preferences';
+import type { MediaTypeId } from '@/http/media/types';
+import type { NonnegRange } from '@/http/range';
 import type {
   Filter,
   HavingClause,
   LogicTree,
   OrderTerm,
   SelectItem,
-} from '../parser/types';
+} from '@/parser/types';
 import type { EmbedNode } from './embed-plan';
 
 // ----- Feature plan fields ---------------------------------------------

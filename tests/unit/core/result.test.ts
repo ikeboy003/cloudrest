@@ -11,7 +11,7 @@ import {
   ok,
   unwrapOr,
   type Result,
-} from '../../../src/core/result';
+} from '@/core/result';
 
 describe('Result<T, E>', () => {
   describe('ok / err constructors', () => {

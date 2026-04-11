@@ -6,7 +6,7 @@
 //
 // Usage:
 //
-//     import { parseErrors, authErrors, type CloudRestError } from '../core/errors';
+//     import { parseErrors, authErrors, type CloudRestError } from '@/core/errors';
 //     return err(parseErrors.queryParam('order', 'expected column'));
 
 export type { CloudRestError, ErrorCode, ErrorVerbosity } from './errors/types';

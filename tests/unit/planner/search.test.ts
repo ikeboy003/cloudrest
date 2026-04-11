@@ -5,10 +5,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { planSearch } from '../../../src/planner/search';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
-import { BOOKS_SCHEMA } from '../../fixtures/schema';
-import { findTable } from '../../../src/schema/cache';
+import { planSearch } from '@/planner/search';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
+import { BOOKS_SCHEMA } from '@tests/fixtures/schema';
+import { findTable } from '@/schema/cache';
 
 const booksTable = findTable(BOOKS_SCHEMA, { schema: 'public', name: 'books' })!;
 

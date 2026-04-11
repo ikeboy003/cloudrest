@@ -5,8 +5,8 @@ import {
   splitTopLevel,
   strictParseInt,
   strictParseNonNegInt,
-} from '../../../src/parser/tokenize';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
+} from '@/parser/tokenize';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 describe('splitTopLevel', () => {
   it('splits on the separator at depth 0', () => {

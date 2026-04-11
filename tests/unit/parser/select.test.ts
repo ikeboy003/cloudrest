@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseSelect } from '../../../src/parser/select';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
+import { parseSelect } from '@/parser/select';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 describe('parseSelect — basic', () => {
   it('empty input returns an empty list', () => {

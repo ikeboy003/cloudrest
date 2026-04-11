@@ -5,8 +5,8 @@
 // module and assemble the ParsedQueryParams output. See ARCHITECTURE.md
 // § Parser boundary.
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
 import { parseDistinct } from './distinct';
 import { parseFilter } from './filter';
 import { parseHavingClauses } from './having';
@@ -21,7 +21,7 @@ import type { LogicTree } from './types/logic';
 import type { OrderTerm } from './types/order';
 import type { ParsedQueryParams } from './types/query';
 import type { SelectItem } from './types/select';
-import type { NonnegRange } from '../http/range';
+import type { NonnegRange } from '@/http/range';
 
 /**
  * Parameter keys that never become filters or RPC params. The list is

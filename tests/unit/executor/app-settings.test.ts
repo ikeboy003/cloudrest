@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { buildAppSettingsPrelude } from '../../../src/executor/app-settings';
+import { buildAppSettingsPrelude } from '@/executor/app-settings';
 
 describe('buildAppSettingsPrelude — search_path', () => {
   it('issues a search_path set_config for the exposed schemas', () => {

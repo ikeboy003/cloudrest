@@ -17,9 +17,9 @@
 //           returns `undefined` on a parse failure so an empty path
 //           can never become "JSON.stringify(payload)".
 
-import { err, ok, type Result } from '../core/result';
-import { authErrors, type CloudRestError } from '../core/errors';
-import type { AppConfig } from '../config/schema';
+import { err, ok, type Result } from '@/core/result';
+import { authErrors, type CloudRestError } from '@/core/errors';
+import type { AppConfig } from '@/config/schema';
 import { base64UrlDecode, base64UrlToBuffer } from './base64';
 import { walkClaimPath, stringifyClaimValue } from './claims';
 import {
@@ -143,7 +143,17 @@ async function verifyAndDecode(
   // from PGRST301 ("cryptographic operation failed") — operators
   // reading logs want to see "you tried to use alg=none" spelled
   // out, not "signature mismatch".
-  const alg = header.alg ?? 'HS256';
+  //
+  // BUG FIX: the old code defaulted a missing `alg` header to
+  // `HS256`, so a token with NO alg claim would be verified as if
+  // the client had explicitly asked for HS256. That lets a client
+  // construct tokens that bypass strict-alg operator intent. Treat
+  // a missing or non-string `alg` as algorithm-not-allowed, the
+  // same shape as `alg=none`.
+  if (typeof header.alg !== 'string' || header.alg === '') {
+    return err(authErrors.algNotAllowed('missing'));
+  }
+  const alg = header.alg;
   if (!isRsaAlg(alg) && !isEcAlg(alg) && !isHmacAlg(alg)) {
     return err(authErrors.algNotAllowed(alg));
   }

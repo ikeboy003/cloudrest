@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseRange, rangeStatusHeader } from '../../../src/http/range';
+import { parseRange, rangeStatusHeader } from '@/http/range';
 
 function headersOf(range?: string): Headers {
   const h = new Headers();

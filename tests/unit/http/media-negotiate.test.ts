@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseAcceptHeader } from '../../../src/http/media/parse';
-import { negotiateOutputMedia } from '../../../src/http/media/negotiate';
+import { parseAcceptHeader } from '@/http/media/parse';
+import { negotiateOutputMedia } from '@/http/media/negotiate';
 
 function negotiate(accept: string, offered: Parameters<typeof negotiateOutputMedia>[0]['offered']) {
   return negotiateOutputMedia({

@@ -16,10 +16,10 @@
 //        unconditionally treated the literal text `NULL` as SQL NULL,
 //        breaking any row that contained a legitimate `"NULL"` string.
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
-import { makeError } from '../core/errors/types';
-import type { AppConfig } from '../config/schema';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
+import { makeError } from '@/core/errors/types';
+import type { AppConfig } from '@/config/schema';
 
 // ----- Payload shape ---------------------------------------------------
 

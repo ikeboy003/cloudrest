@@ -10,7 +10,7 @@ import type { HavingClause } from './having';
 import type { LogicTree } from './logic';
 import type { OrderTerm } from './order';
 import type { SelectItem } from './select';
-import type { NonnegRange } from '../../http/range';
+import type { NonnegRange } from '@/http/range';
 
 export interface ParsedQueryParams {
   /** Canonical (sorted, encoded) query string used for cache keys and cursor tokens. */

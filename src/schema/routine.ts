@@ -9,7 +9,7 @@
 // incompatible parameter sets) are a PGRST201 error at the planner,
 // not a silent last-wins.
 
-import type { QualifiedIdentifier } from '../http/request';
+import type { QualifiedIdentifier } from '@/http/request';
 
 // ----- Types -----------------------------------------------------------
 

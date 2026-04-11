@@ -17,12 +17,13 @@
 // (cache), 18 (Server-Timing) widen this module without changing
 // the eight-step structure.
 
-import { ok, type Result } from '../core/result';
-import type { CloudRestError } from '../core/errors';
-import type { AppConfig } from '../config/schema';
-import type { ParsedHttpRequest } from '../http/request';
-import { contentTypeFor, type MediaTypeId } from '../http/media/types';
-import type { RequestTimer } from '../executor/timer';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
+import type { AppConfig } from '@/config/schema';
+import type { ParsedHttpRequest } from '@/http/request';
+import { contentTypeFor, type MediaTypeId } from '@/http/media/types';
+import type { RequestTimer } from '@/executor/timer';
+import { preferenceAppliedHeader } from '@/http/preferences';
 import { parseResponseGucHeaders } from './guc';
 import type { RawDomainResponse } from './build';
 
@@ -51,6 +52,23 @@ export function finalizeResponse(
   input: FinalizeInput,
 ): Result<Response, CloudRestError> {
   const { httpRequest, response, baseStatus, contentType, timer } = input;
+  const prefs = httpRequest.preferences;
+
+  // ----- 0. Invalid-preferences guardrail -----
+  //
+  // BUG FIX: `parsePrefer` records every preference token the
+  // client sent but that we couldn't apply (unknown key, unknown
+  // value, or server-forbidden override). Under
+  // `Prefer: handling=strict` PostgREST returns 400 PGRST122 with
+  // the offending tokens; under the default lenient path it adds
+  // a `Warning` header so misconfigured clients don't fail hard.
+  // The old finalizer ignored `invalidPrefs` entirely, silently
+  // accepting every malformed Prefer token.
+  if (prefs.invalidPrefs.length > 0 && prefs.preferHandling === 'strict') {
+    return err(
+      parseErrors.invalidPreferences(prefs.invalidPrefs.join(', ')),
+    );
+  }
 
   // ----- 1. GUC overrides -----
   const gucResult = parseResponseGucHeaders({
@@ -71,6 +89,25 @@ export function finalizeResponse(
   // ----- 4. Content-Range -----
   headers.set('Content-Range', response.contentRange);
 
+  // ----- 4b. Location (INSERT/UPSERT with a primary key) -----
+  //
+  // BUG FIX: the mutation SQL wrapper already emits a `header`
+  // column with the Location-key pairs, but `shapeDomainResponse`
+  // used to drop it on the floor and the finalizer never emitted
+  // a Location: header at all. Now the handler carries it on
+  // `locationQuery` and we render `<path>?<pk>=eq.<value>` here.
+  // Only emits for 201 Created (and 303, if a GUC override sets
+  // it) — we follow PostgREST's behavior of not emitting Location
+  // on UPDATE/DELETE even when the rows have a PK.
+  const locationQuery = response.locationQuery;
+  if (
+    typeof locationQuery === 'string' &&
+    locationQuery.length > 0 &&
+    (status === 201 || status === 303)
+  ) {
+    headers.set('Location', `${httpRequest.path}?${locationQuery}`);
+  }
+
   // ----- 5. ETag (only for read paths) -----
   if (
     httpRequest.action.type === 'relationRead' ||
@@ -84,6 +121,21 @@ export function finalizeResponse(
   if (input.config.observability.serverTimingEnabled && timer !== undefined) {
     const timingHeader = renderServerTiming(timer);
     if (timingHeader !== '') headers.set('Server-Timing', timingHeader);
+  }
+
+  // ----- 6b. Preference-Applied / Warning -----
+  //
+  // BUG FIX: emit `Preference-Applied` summarizing every
+  // preference we honored, and — under lenient handling — a
+  // `Warning` header naming every preference we dropped. The
+  // strict branch above already shortcircuits to PGRST122.
+  const appliedHeader = preferenceAppliedHeader(prefs);
+  if (appliedHeader !== null) headers.set('Preference-Applied', appliedHeader);
+  if (prefs.invalidPrefs.length > 0) {
+    headers.set(
+      'Warning',
+      `299 - "Unsupported preferences: ${prefs.invalidPrefs.join(', ')}"`,
+    );
   }
 
   // ----- 7. GUC-supplied headers (DB function overrides) -----
@@ -153,5 +205,5 @@ function renderServerTiming(timer: RequestTimer): string {
 }
 
 /** Re-export of the media-registry helper for Stage 8 callers. */
-export { contentTypeFor } from '../http/media/types';
-export type { MediaTypeId } from '../http/media/types';
+export { contentTypeFor } from '@/http/media/types';
+export type { MediaTypeId } from '@/http/media/types';

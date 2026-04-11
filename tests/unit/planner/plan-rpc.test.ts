@@ -2,12 +2,12 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { parseQueryParams } from '../../../src/parser/query-params';
-import { planRpc } from '../../../src/planner/plan-rpc';
-import type { Payload } from '../../../src/parser/payload';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
-import { makeSchema } from '../../fixtures/schema';
-import { attachRoutines, makeRoutine } from '../../fixtures/routines';
+import { parseQueryParams } from '@/parser/query-params';
+import { planRpc } from '@/planner/plan-rpc';
+import type { Payload } from '@/parser/payload';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
+import { makeSchema } from '@tests/fixtures/schema';
+import { attachRoutines, makeRoutine } from '@tests/fixtures/routines';
 
 const SCHEMA = attachRoutines(makeSchema([]), [
   makeRoutine({

@@ -11,10 +11,15 @@
 // RPC result set is supported through the same fields the read
 // plan uses.
 
-import type { QualifiedIdentifier } from '../http/request';
-import type { Filter, LogicTree, OrderTerm } from '../parser/types';
-import type { NonnegRange } from '../http/range';
-import type { Routine } from '../schema/routine';
+import type { QualifiedIdentifier } from '@/http/request';
+import type {
+  Filter,
+  LogicTree,
+  OrderTerm,
+  SelectItem,
+} from '@/parser/types';
+import type { NonnegRange } from '@/http/range';
+import type { Routine } from '@/schema/routine';
 import type { ReturnPreference } from './mutation-plan';
 
 /**
@@ -51,14 +56,22 @@ export interface RpcPlan {
   readonly rawBody: string | null;
 
   /**
-   * Optional filter/logic/order/range layered on top of the RPC
-   * result set — PostgREST's "pre-query" story. The planner only
-   * populates these for composite-return routines.
+   * Optional filter/logic/order/range/select layered on top of
+   * the RPC result set — PostgREST's "pre-query" story. The
+   * planner populates these for composite-return routines; the
+   * builder ignores filters/select for scalar-return routines
+   * because there are no columns to project or filter over.
    */
   readonly filters: readonly Filter[];
   readonly logic: readonly LogicTree[];
   readonly order: readonly OrderTerm[];
   readonly range: NonnegRange;
+  /**
+   * `?select=col1,col2` projection. Empty array = `*` (all
+   * record columns). Field-only items; embeds on RPC results
+   * are not supported.
+   */
+  readonly select: readonly SelectItem[];
 
   /** `Prefer: return=representation` vs `minimal`. */
   readonly returnPreference: ReturnPreference;

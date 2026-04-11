@@ -22,8 +22,8 @@
 // code stripped quotes first and then tested `^\d+$`, losing the
 // distinction.
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
 import type { Field, JsonOperation } from './types/field';
 
 export function parseField(raw: string): Result<Field, CloudRestError> {

@@ -8,9 +8,9 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { runTransaction } from '../../../src/executor/transaction';
-import type { ExecutableQuery } from '../../../src/executor/types';
-import { makeFakeSqlClient } from '../../fixtures/fake-sql';
+import { runTransaction } from '@/executor/transaction';
+import type { ExecutableQuery } from '@/executor/types';
+import { makeFakeSqlClient } from '@tests/fixtures/fake-sql';
 
 const MAIN: ExecutableQuery = {
   sql: 'SELECT * FROM "public"."books"',

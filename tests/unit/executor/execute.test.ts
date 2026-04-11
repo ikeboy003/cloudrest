@@ -6,12 +6,12 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { mapOutcome } from '../../../src/executor/execute';
+import { mapOutcome } from '@/executor/execute';
 import type {
   QueryResult,
   TransactionOutcome,
-} from '../../../src/executor/types';
-import { makeError } from '../../../src/core/errors/types';
+} from '@/executor/types';
+import { makeError } from '@/core/errors/types';
 
 const SAMPLE_RESULT: QueryResult = {
   rows: [{ page_total: 1, body: '[{"id":1}]' }],

@@ -10,15 +10,15 @@
 // as a plain array. It reaches SQL only via SqlBuilder.addParam in the
 // builder. The planner never stringifies it.
 
-import { err, ok, type Result } from '../core/result';
+import { err, ok, type Result } from '@/core/result';
 import {
   fuzzyFind,
   parseErrors,
   schemaErrors,
   type CloudRestError,
-} from '../core/errors';
-import type { Table } from '../schema/table';
-import { findColumn } from '../schema/table';
+} from '@/core/errors';
+import type { Table } from '@/schema/table';
+import { findColumn } from '@/schema/table';
 import type { VectorOp, VectorPlan } from './read-plan';
 
 const VECTOR_OPS: readonly VectorOp[] = ['l2', 'cosine', 'inner_product', 'l1'];

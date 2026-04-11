@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { walkClaimPath, parseClaimPath } from '../../../src/auth/claims';
+import { walkClaimPath, parseClaimPath } from '@/auth/claims';
 
 describe('walkClaimPath — key access', () => {
   it('walks a simple dotted path', () => {

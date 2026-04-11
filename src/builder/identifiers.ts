@@ -17,7 +17,7 @@
 // constants. User-controlled values MUST go through `SqlBuilder.addParam`
 // (see builder/sql.ts). CONSTITUTION §1.3.
 
-import type { QualifiedIdentifier } from '../http/request';
+import type { QualifiedIdentifier } from '@/http/request';
 
 /**
  * Escape a SQL identifier by wrapping in double quotes and doubling
@@ -36,23 +36,63 @@ export function escapeIdentList(names: readonly string[]): string {
 }
 
 /**
+ * Sentinel `QualifiedIdentifier` that asks the renderers for
+ * UNQUALIFIED column references — bare `"col"` instead of
+ * `"schema"."table"."col"` or `"t"."col"`.
+ *
+ * RUNTIME: used by `builder/rpc.ts` for filters/order/projections
+ * applied to the output of a set-returning function. Inside a
+ * `FROM fn() pgrst_call WHERE ...` scope there is exactly one
+ * table in scope, so column names resolve unambiguously with no
+ * alias prefix and the builder doesn't have to fight with a fake
+ * `"t"."col"` qualifier that doesn't actually exist at that
+ * nesting level.
+ *
+ * INVARIANT: the helpers in this file are the ONLY code that reads
+ * the sentinel. Callers that want a local-scope reference import
+ * `LOCAL_SCOPE` and pass it through; the renderers handle the
+ * special case in one place.
+ */
+export const LOCAL_SCOPE: QualifiedIdentifier = Object.freeze({
+  schema: '',
+  name: '',
+});
+
+function isLocalScope(q: QualifiedIdentifier): boolean {
+  return q.schema === '' && q.name === '';
+}
+
+/**
  * Format a QualifiedIdentifier as `"schema"."name"`.
- * When the schema is empty, returns just `"name"` (used for temp/local
- * references).
+ *
+ * - `LOCAL_SCOPE` (both empty) returns an empty string so
+ *   `qualifiedColumnToSql(LOCAL_SCOPE, 'col')` becomes `"col"`.
+ * - A bare name with empty schema returns `"name"` (used for
+ *   temp/local references like `pgrst_call`).
+ * - Otherwise returns `"schema"."name"`.
  */
 export function qualifiedIdentifierToSql(q: QualifiedIdentifier): string {
+  if (isLocalScope(q)) return '';
   if (q.schema === '') return escapeIdent(q.name);
   return escapeIdent(q.schema) + '.' + escapeIdent(q.name);
 }
 
 /**
- * Format a column reference: `"schema"."table"."column"` or
- * `"schema"."table".*` for the wildcard.
+ * Format a column reference. Shapes:
+ *
+ *   LOCAL_SCOPE + col      → `"col"`            (bare, no qualifier)
+ *   LOCAL_SCOPE + '*'      → `*`                (bare wildcard)
+ *   {name: t} + col        → `"t"."col"`
+ *   {schema, name} + col   → `"schema"."name"."col"`
+ *   same + '*'             → `"schema"."name".*`
  */
 export function qualifiedColumnToSql(
   target: QualifiedIdentifier,
   column: string,
 ): string {
+  if (isLocalScope(target)) {
+    return column === '*' ? '*' : escapeIdent(column);
+  }
   if (column === '*') return qualifiedIdentifierToSql(target) + '.*';
   return qualifiedIdentifierToSql(target) + '.' + escapeIdent(column);
 }

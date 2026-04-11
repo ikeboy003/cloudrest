@@ -4,8 +4,8 @@
 // produce, pick one. This is a pure function — it takes what the parser
 // emitted and returns a single MediaTypeId, or an error.
 
-import { err, ok, type Result } from '../../core/result';
-import { mediaErrors, type CloudRestError } from '../../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { mediaErrors, type CloudRestError } from '@/core/errors';
 import { lookupById, type MediaType, type MediaTypeId } from './types';
 
 export interface NegotiationRequest {

@@ -8,11 +8,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { buildReadQuery } from '../../../src/builder/read';
-import { parseQueryParams } from '../../../src/parser/query-params';
-import { planRead } from '../../../src/planner/plan-read';
-import { expectOk } from '../../fixtures/assert-result';
-import { LIBRARY_SCHEMA } from '../../fixtures/schema';
+import { buildReadQuery } from '@/builder/read';
+import { parseQueryParams } from '@/parser/query-params';
+import { planRead } from '@/planner/plan-read';
+import { expectOk } from '@tests/fixtures/assert-result';
+import { LIBRARY_SCHEMA } from '@tests/fixtures/schema';
 
 function plan(query: string, target = { schema: 'public', name: 'books' }) {
   const parsed = expectOk(parseQueryParams(new URLSearchParams(query)));

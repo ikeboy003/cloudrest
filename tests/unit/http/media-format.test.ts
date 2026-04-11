@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatBody, type FormatBodyResult } from '../../../src/http/media/format';
+import { formatBody, type FormatBodyResult } from '@/http/media/format';
 
 /**
  * Most tests want to assert "got a body string". `formatBody` now

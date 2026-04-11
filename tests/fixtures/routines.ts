@@ -1,8 +1,8 @@
 // Test helpers for building schema caches with routines.
 
-import type { SchemaCache } from '../../src/schema/cache';
-import type { Routine, RoutinesMap } from '../../src/schema/routine';
-import { routineKey } from '../../src/schema/routine';
+import type { SchemaCache } from '@/schema/cache';
+import type { Routine, RoutinesMap } from '@/schema/routine';
+import { routineKey } from '@/schema/routine';
 
 export function makeRoutine(spec: {
   readonly schema?: string;

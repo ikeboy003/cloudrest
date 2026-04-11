@@ -9,14 +9,14 @@
 // context) → Promise<Result<Response, CloudRestError>>`. This is the
 // contract PHASE_B Stage 8 pins.
 
-import type { HandlerContext } from '../core/context';
-import type { CloudRestError } from '../core/errors';
-import type { Result } from '../core/result';
-import type { Action, ParsedHttpRequest } from '../http/request';
-import { handleRead } from '../handlers/read';
-import { handleMutation } from '../handlers/mutation';
-import { handleRpc } from '../handlers/rpc';
-import { handleSchemaRoot } from '../handlers/schema-root';
+import type { HandlerContext } from '@/core/context';
+import type { CloudRestError } from '@/core/errors';
+import type { Result } from '@/core/result';
+import type { Action, ParsedHttpRequest } from '@/http/request';
+import { handleRead } from '@/handlers/read';
+import { handleMutation } from '@/handlers/mutation';
+import { handleRpc } from '@/handlers/rpc';
+import { handleSchemaRoot } from '@/handlers/schema-root';
 
 export type RouteHandler = (
   httpRequest: ParsedHttpRequest,

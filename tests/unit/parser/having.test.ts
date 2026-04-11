@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseHavingClauses } from '../../../src/parser/having';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
+import { parseHavingClauses } from '@/parser/having';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 describe('parseHavingClauses', () => {
   it('parses count().gt.5', () => {

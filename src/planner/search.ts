@@ -11,15 +11,15 @@
 // class (`[a-zA-Z0-9_-]+`). Anything else is a PGRST100 parse error,
 // not a silent downgrade to `'simple'`.
 
-import { err, ok, type Result } from '../core/result';
+import { err, ok, type Result } from '@/core/result';
 import {
   fuzzyFind,
   parseErrors,
   schemaErrors,
   type CloudRestError,
-} from '../core/errors';
-import type { Table } from '../schema/table';
-import { findColumn } from '../schema/table';
+} from '@/core/errors';
+import type { Table } from '@/schema/table';
+import { findColumn } from '@/schema/table';
 import type { SearchPlan } from './read-plan';
 
 const SAFE_LANGUAGE_RE = /^[a-zA-Z0-9_-]+$/;

@@ -19,14 +19,14 @@
 // placeholder strategy is deliberate: we want `context.schema` (etc.) to
 // fail typecheck before its stage lands, not compile as `any`.
 
-import type { AppConfig } from '../config/schema';
-import type { Env } from '../config/env';
-import type { RequestTimer } from '../executor/timer';
-import type { AuthClaims } from '../auth/authenticate';
-import type { SchemaCache as RealSchemaCache } from '../schema/cache';
+import type { AppConfig } from '@/config/schema';
+import type { Env } from '@/config/env';
+import type { RequestTimer } from '@/executor/timer';
+import type { AuthClaims } from '@/auth/authenticate';
+import type { SchemaCache as RealSchemaCache } from '@/schema/cache';
 
 // Re-export the shape of worker bindings under the context-facing name.
-export type { AppConfig } from '../config/schema';
+export type { AppConfig } from '@/config/schema';
 export type WorkerBindings = Env;
 
 /** Stage 8 — real type, re-exported for downstream consumers. */
@@ -39,7 +39,7 @@ export type SchemaCache = RealSchemaCache;
 export type AuthResult = AuthClaims;
 
 /** Stage 7 (executor/timing) — real type, re-exported for downstream consumers. */
-export type { RequestTimer } from '../executor/timer';
+export type { RequestTimer } from '@/executor/timer';
 
 /**
  * Cloudflare Worker execution context. Exposes `waitUntil` for deferred

@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { createRequestTimer } from '../../../src/executor/timer';
+import { createRequestTimer } from '@/executor/timer';
 
 describe('createRequestTimer', () => {
   it('records a single phase via start/stop', () => {

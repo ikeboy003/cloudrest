@@ -1,18 +1,14 @@
+// Smoke test: the Worker entry point exports the `fetch` method
+// Cloudflare expects. Real end-to-end behavior is covered by
+// `tests/behavior/*` which drives `handleFetch` directly with fake
+// bindings — this file only verifies the shape so a refactor of
+// `src/index.ts` can't silently break the Worker signature.
+
 import { describe, expect, it } from 'vitest';
-import worker from '../../src/index';
+import worker from '@/index';
 
 describe('stage 0 scaffold', () => {
-  it('exports a fetch handler', () => {
+  it('exports a default with a fetch handler', () => {
     expect(typeof worker.fetch).toBe('function');
-  });
-
-  it('returns 501 with a structured body', async () => {
-    const response = await worker.fetch(new Request('https://example.com/'));
-    expect(response.status).toBe(501);
-    expect(response.headers.get('content-type')).toBe('application/json');
-
-    const body = (await response.json()) as { code: string; message: string };
-    expect(body.code).toBe('PGRST000');
-    expect(body.message).toContain('not yet implemented');
   });
 });

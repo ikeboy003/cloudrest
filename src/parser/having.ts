@@ -12,8 +12,8 @@
 // BUG FIX (#22): field arguments carry a full `Field` AST so JSON paths
 // work consistently with select/filter/order.
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
 import { parseField } from './json-path';
 import { parseOpExpr } from './operators';
 import { splitTopLevel } from './tokenize';

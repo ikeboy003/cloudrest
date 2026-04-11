@@ -5,11 +5,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { parseQueryParams } from '../../../src/parser/query-params';
-import { planMutation } from '../../../src/planner/plan-mutation';
-import type { Payload } from '../../../src/parser/payload';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
-import { makeSchema } from '../../fixtures/schema';
+import { parseQueryParams } from '@/parser/query-params';
+import { planMutation } from '@/planner/plan-mutation';
+import type { Payload } from '@/parser/payload';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
+import { makeSchema } from '@tests/fixtures/schema';
 
 const SCHEMA = makeSchema([
   {

@@ -5,7 +5,7 @@
 // naming convention that created visual noise and made TypeScript feel
 // mechanically ported. The rewrite uses plain `columns`, `type`, etc.
 
-import type { QualifiedIdentifier } from '../http/request';
+import type { QualifiedIdentifier } from '@/http/request';
 
 export interface Column {
   readonly name: string;

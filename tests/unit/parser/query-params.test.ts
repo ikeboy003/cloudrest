@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseQueryParams } from '../../../src/parser/query-params';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
+import { parseQueryParams } from '@/parser/query-params';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 function parse(query: string) {
   return parseQueryParams(new URLSearchParams(query));

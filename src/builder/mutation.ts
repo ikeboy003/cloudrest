@@ -11,22 +11,42 @@
 // bare `RETURNING *` in UPDATE joined against `pgrst_body` produced
 // duplicate column names in the result set.
 //
-// INVARIANT (CONSTITUTION §1.3): the JSON body reaches SQL via
-// `SqlBuilder.addParam`, not `pgFmtLit`. Postgres parses `$1::json`
-// as json regardless of how the driver sent the bind value.
+// RUNTIME (CONSTITUTION §1.3 exception): the JSON body for
+// `INSERT` / `UPDATE` is inlined via `pgFmtLit(body)::jsonb`, NOT
+// bound via `SqlBuilder.addParam`. `postgres.js` sends every bind
+// parameter as text, and `json_to_record($1::json)` (or
+// `jsonb_to_record($1::jsonb)`) inside a prepared statement fails
+// with Postgres error 22023 "cannot call populate_composite on a
+// scalar" because the prepare step resolves the parameter type
+// before the `::json` cast applies. PostgREST uses Hasql's
+// `jsonLazyBytes` encoder to sidestep this; the Workers runtime
+// has no equivalent. `pgFmtLit` is the same SECURITY-audited
+// helper the old code uses and is hardened against both single-
+// quote and backslash injection. See
+// `cloudrest-public/src/builder/fragments.ts::inlineJsonLiteral`
+// for the original source.
 
-import { err, ok, type Result } from '../core/result';
-import type { CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import type { CloudRestError } from '@/core/errors';
 import type {
   DeletePlan,
   InsertPlan,
   MutationPlan,
   UpdatePlan,
-} from '../planner/mutation-plan';
+} from '@/planner/mutation-plan';
 import { renderFilter, renderLogicTree } from './fragments';
-import { escapeIdent, qualifiedIdentifierToSql } from './identifiers';
+import {
+  escapeIdent,
+  pgFmtLit,
+  qualifiedIdentifierToSql,
+} from './identifiers';
 import { SqlBuilder } from './sql';
 import type { BuiltQuery } from './types';
+
+/** Inline a JSON body as a Postgres `jsonb` literal. See file header. */
+function inlineJsonbLiteral(body: string): string {
+  return `${pgFmtLit(body)}::jsonb`;
+}
 
 // ----- Public entry point ----------------------------------------------
 
@@ -62,15 +82,21 @@ function buildInsert(plan: InsertPlan): Result<BuiltQuery, CloudRestError> {
     const typedCols = plan.columns
       .map((c) => `${escapeIdent(c.name)} ${c.type}`)
       .join(', ');
-    const bodyParam = builder.addParam(plan.rawBody);
-    const jsonFunc = plan.isArrayBody ? 'json_to_recordset' : 'json_to_record';
+    // RUNTIME override: see file header. The JSON body is inlined
+    // as a `::jsonb` literal via `pgFmtLit` because
+    // `json_to_record($1::json)` cannot be prepared against a
+    // postgres.js text-typed parameter.
+    const bodyLiteral = inlineJsonbLiteral(plan.rawBody);
+    const jsonFunc = plan.isArrayBody
+      ? 'jsonb_to_recordset'
+      : 'jsonb_to_record';
     const limitOne = plan.isArrayBody ? '' : ' LIMIT 1';
     const conflictClause = renderOnConflict(plan);
 
     cte =
       `WITH pgrst_source AS (` +
       `INSERT INTO ${tableSql} (${colList}) ` +
-      `SELECT ${colList} FROM ${jsonFunc}(${bodyParam}::json) AS _(${typedCols})${limitOne}` +
+      `SELECT ${colList} FROM ${jsonFunc}(${bodyLiteral}) AS _(${typedCols})${limitOne}` +
       `${conflictClause} ${renderReturning(plan)})`;
   }
 
@@ -118,7 +144,8 @@ function buildUpdate(plan: UpdatePlan): Result<BuiltQuery, CloudRestError> {
     const typedCols = plan.columns
       .map((c) => `${escapeIdent(c.name)} ${c.type}`)
       .join(', ');
-    const bodyParam = builder.addParam(plan.rawBody);
+    // RUNTIME override: see file header. JSON body is inlined.
+    const bodyLiteral = inlineJsonbLiteral(plan.rawBody);
 
     const wherePartsResult = renderWhereParts(
       plan.target,
@@ -132,7 +159,7 @@ function buildUpdate(plan: UpdatePlan): Result<BuiltQuery, CloudRestError> {
     cte =
       `WITH pgrst_source AS (` +
       `UPDATE ${tableSql} SET ${setClauses} ` +
-      `FROM json_to_record(${bodyParam}::json) AS pgrst_body(${typedCols})` +
+      `FROM jsonb_to_record(${bodyLiteral}) AS pgrst_body(${typedCols})` +
       `${whereStr} ${renderReturning(plan)})`;
   }
 

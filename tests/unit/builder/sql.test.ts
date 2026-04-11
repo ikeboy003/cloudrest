@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { SqlBuilder } from '../../../src/builder/sql';
+import { SqlBuilder } from '@/builder/sql';
 
 describe('SqlBuilder.addParam', () => {
   it('allocates $1, $2, $3 monotonically', () => {

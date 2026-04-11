@@ -12,9 +12,9 @@ import {
   __resetJwtCacheForTest,
   __resetJwksCacheForTest,
   __resetPemCacheForTest,
-} from '../../../src/auth';
-import { makeTestConfig } from '../../fixtures/config';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
+} from '@/auth';
+import { makeTestConfig } from '@tests/fixtures/config';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 function base64Url(input: string | Uint8Array): string {
   const str =

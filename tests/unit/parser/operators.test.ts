@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseOpExpr } from '../../../src/parser/operators';
-import { expectErr, expectOk } from '../../fixtures/assert-result';
+import { parseOpExpr } from '@/parser/operators';
+import { expectErr, expectOk } from '@tests/fixtures/assert-result';
 
 describe('parseOpExpr — quantifiable operators', () => {
   it('parses eq', () => {

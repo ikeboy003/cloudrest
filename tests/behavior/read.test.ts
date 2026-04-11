@@ -12,15 +12,15 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { handleFetch } from '../../src/router/fetch';
+import { handleFetch } from '@/router/fetch';
 import {
   __installClientForTest,
   __resetClientsForTest,
-} from '../../src/executor/client';
-import { buildSchemaCacheFromTables } from '../../src/schema/introspect';
-import { makeTable, makeTestConfig } from '../fixtures/config-and-schema';
-import { makeFakeSqlClient } from '../fixtures/fake-sql';
-import type { WorkerBindings } from '../../src/core/context';
+} from '@/executor/client';
+import { buildSchemaCacheFromTables } from '@/schema/introspect';
+import { makeTable, makeTestConfig } from '@tests/fixtures/config-and-schema';
+import { makeFakeSqlClient } from '@tests/fixtures/fake-sql';
+import type { WorkerBindings } from '@/core/context';
 
 // ----- Test bindings ----------------------------------------------------
 

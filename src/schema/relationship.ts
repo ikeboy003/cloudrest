@@ -9,7 +9,7 @@
 // populate it with minimal translation. The field names drop the
 // Haskell-record prefixes (`relTable` → `table`).
 
-import type { QualifiedIdentifier } from '../http/request';
+import type { QualifiedIdentifier } from '@/http/request';
 
 /** Name of a foreign-key constraint. */
 export type FKConstraint = string;

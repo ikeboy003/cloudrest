@@ -10,8 +10,8 @@
 // helper silently accepted `select=author(id,name` as a two-item list
 // with truncation, which later produced confusing planner failures.
 
-import { err, ok, type Result } from '../core/result';
-import { parseErrors, type CloudRestError } from '../core/errors';
+import { err, ok, type Result } from '@/core/result';
+import { parseErrors, type CloudRestError } from '@/core/errors';
 
 export interface SplitOptions {
   /** Human-readable context for error messages (e.g. "select"). */

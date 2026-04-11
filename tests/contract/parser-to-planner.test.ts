@@ -8,10 +8,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { parseQueryParams } from '../../src/parser/query-params';
-import { planRead } from '../../src/planner/plan-read';
-import { expectOk } from '../fixtures/assert-result';
-import { LIBRARY_SCHEMA } from '../fixtures/schema';
+import { parseQueryParams } from '@/parser/query-params';
+import { planRead } from '@/planner/plan-read';
+import { expectOk } from '@tests/fixtures/assert-result';
+import { LIBRARY_SCHEMA } from '@tests/fixtures/schema';
 
 function runThrough(query: string) {
   const parsed = expectOk(parseQueryParams(new URLSearchParams(query)));
