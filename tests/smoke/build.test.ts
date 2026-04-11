@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import worker from '../../src/index.ts';
+import worker from '../../src/index';
 
 describe('stage 0 scaffold', () => {
   it('exports a fetch handler', () => {

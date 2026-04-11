@@ -71,6 +71,7 @@ At Stage 0 `npm run dev` starts a worker that returns 501 for everything. That c
 
 - [**ARCHITECTURE.md**](ARCHITECTURE.md) — the map. Read this before touching source.
 - [**CONTRIBUTING.md**](CONTRIBUTING.md) — how to propose changes, run tests, and ship a stage.
+- [**docs/DEVELOPMENT.md**](docs/DEVELOPMENT.md) — run a local Postgres, start `wrangler dev`, mint a dev JWT.
 - [**CODE_OF_CONDUCT.md**](CODE_OF_CONDUCT.md) — how we expect people to behave here.
 - [**SECURITY.md**](SECURITY.md) — how to report a vulnerability.
 - [**CHANGELOG.md**](CHANGELOG.md) — what shipped and when.

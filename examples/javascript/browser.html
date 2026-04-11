@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CloudREST — browser example</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; margin: 2rem; max-width: 48rem; }
+    h1 { margin-top: 0; }
+    label { display: block; margin: 0.5rem 0 0.25rem; }
+    input { width: 100%; padding: 0.5rem; font: inherit; box-sizing: border-box; }
+    button { padding: 0.5rem 1rem; margin-top: 0.75rem; font: inherit; cursor: pointer; }
+    pre { background: #f4f4f4; padding: 1rem; overflow: auto; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>CloudREST example</h1>
+  <p>Search books against a CloudREST instance using <code>fetch</code>. Start <code>wrangler dev</code> and load <code>examples/schema.sql</code> first.</p>
+
+  <label>CloudREST base URL
+    <input id="base" value="http://localhost:8787">
+  </label>
+  <label>Title contains (ilike)
+    <input id="q" value="dune">
+  </label>
+  <button id="run">Search</button>
+
+  <h3>Result</h3>
+  <pre id="out">(not yet)</pre>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    async function search() {
+      const base = $('base').value.replace(/\/+$/, '');
+      const q = $('q').value.trim();
+      const url = new URL(base + '/books');
+      url.searchParams.set('title', `ilike.*${q}*`);
+      url.searchParams.set('select', 'id,title,price,authors(name)');
+      url.searchParams.set('order', 'price.asc');
+
+      try {
+        const res = await fetch(url);
+        const body = await res.json();
+        $('out').textContent = JSON.stringify(body, null, 2);
+      } catch (err) {
+        $('out').textContent = 'Error: ' + err.message;
+      }
+    }
+
+    $('run').addEventListener('click', search);
+    search();
+  </script>
+</body>
+</html>
