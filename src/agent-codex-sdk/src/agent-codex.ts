@@ -11,7 +11,7 @@
 
 import WebSocket from 'ws';
 import { Thread } from './thread.js';
-import { discoverToken } from './auth.js';
+import { discoverApiKey } from './auth.js';
 import type { CodexOptions } from './codexOptions.js';
 import type { ThreadOptions } from './threadOptions.js';
 
@@ -34,13 +34,13 @@ export class Codex {
 
     // Build headers with auto-discovered auth
     const headers = { ...(options.headers ?? {}) };
-    if (options.apiToken !== false && !headers['Authorization']) {
-      const token =
-        typeof options.apiToken === 'string'
-          ? options.apiToken
-          : discoverToken();
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+    if (options.apiKey !== false && !headers['Authorization']) {
+      const key =
+        typeof options.apiKey === 'string'
+          ? options.apiKey
+          : discoverApiKey();
+      if (key) {
+        headers['Authorization'] = `Bearer ${key}`;
       }
     }
     this._headers = headers;

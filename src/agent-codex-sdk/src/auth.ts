@@ -4,12 +4,13 @@
 // ~/.codex-agent/auth.json after running `codex-agent login`.
 //
 // Discovery order:
-//   1. Explicit `apiToken` option passed to Codex constructor
-//   2. CLOUDFLARE_API_TOKEN environment variable
-//   3. ~/.codex-agent/auth.json (written by `codex-agent login`)
-//   4. ~/.wrangler/config/default.toml (fallback — written by `wrangler login`)
+//   1. Explicit `apiKey` option passed to Codex constructor
+//   2. OPENAI_API_KEY environment variable
+//   3. ~/.codex-agent/auth.json (written by login flow)
 //
-// On a Worker, none of this runs — you use a DO binding instead.
+// Treat ~/.codex-agent/auth.json like a password: it contains
+// access tokens. Don't commit it, paste it into tickets, or
+// share it in chat.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -24,10 +25,8 @@ const AUTH_FILE = join(CODEX_AGENT_HOME, 'auth.json');
 // ── Types ─────────────────────────────────────────────────────────
 
 interface AuthCredentials {
-  /** Cloudflare API token. */
-  api_token: string;
-  /** Cloudflare account ID (optional, speeds up routing). */
-  account_id?: string;
+  /** OpenAI API key. */
+  api_key: string;
   /** When the credentials were stored (ISO string). */
   stored_at: string;
 }
@@ -35,35 +34,21 @@ interface AuthCredentials {
 // ── Read ──────────────────────────────────────────────────────────
 
 /**
- * Discover a Cloudflare API token from the local environment.
+ * Discover an OpenAI API key from the local environment.
  * Returns null if no credentials are found.
- *
- * Treat ~/.codex-agent/auth.json like a password: it contains
- * access tokens. Don't commit it, paste it into tickets, or
- * share it in chat.
  */
-export function discoverToken(): string | null {
-  // 1. Environment variable (CI, scripts)
-  const envToken = process.env['CLOUDFLARE_API_TOKEN'];
-  if (envToken) return envToken;
+export function discoverApiKey(): string | null {
+  // 1. Environment variable
+  const envKey = process.env['OPENAI_API_KEY'];
+  if (envKey) return envKey;
 
-  // 2. ~/.codex-agent/auth.json (our native store)
+  // 2. ~/.codex-agent/auth.json
   try {
     const content = readFileSync(AUTH_FILE, 'utf-8');
     const creds = JSON.parse(content) as AuthCredentials;
-    if (creds.api_token) return creds.api_token;
+    if (creds.api_key) return creds.api_key;
   } catch {
     // File doesn't exist or is malformed
-  }
-
-  // 3. Fallback: ~/.wrangler/config/default.toml (wrangler login)
-  try {
-    const wranglerPath = join(homedir(), '.wrangler', 'config', 'default.toml');
-    const content = readFileSync(wranglerPath, 'utf-8');
-    const match = /oauth_token\s*=\s*"([^"]+)"/.exec(content);
-    if (match?.[1]) return match[1];
-  } catch {
-    // Not available
   }
 
   return null;
@@ -85,15 +70,11 @@ export function readCredentials(): AuthCredentials | null {
 
 /**
  * Store credentials to ~/.codex-agent/auth.json.
- * Called by `codex-agent login`.
+ * Called by the login flow.
  */
-export function storeCredentials(
-  apiToken: string,
-  accountId?: string,
-): void {
+export function storeCredentials(apiKey: string): void {
   const creds: AuthCredentials = {
-    api_token: apiToken,
-    account_id: accountId,
+    api_key: apiKey,
     stored_at: new Date().toISOString(),
   };
   mkdirSync(CODEX_AGENT_HOME, { recursive: true });
