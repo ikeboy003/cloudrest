@@ -15,6 +15,7 @@ import { routeAgentRequest } from 'agents';
 import { AIChatAgent } from 'agents/ai-chat-agent';
 import { streamText, tool } from 'ai';
 import { createWorkersAI } from 'workers-ai-provider';
+import { createOpenAI } from '@ai-sdk/openai';
 import { z } from 'zod';
 import postgres from 'postgres';
 
@@ -23,6 +24,9 @@ import postgres from 'postgres';
 interface AgentEnv {
   HYPERDRIVE: Hyperdrive;
   AI: Ai;
+  /** OpenAI API key — synced from ~/.codex-agent/auth.json at deploy time. */
+  OPENAI_API_KEY?: string;
+  /** Model ID. Defaults to gpt-4.1-mini (OpenAI) or llama-3.3-70b (Workers AI). */
   AI_MODEL?: string;
   DB_SCHEMAS?: string;
   DataAgent: DurableObjectNamespace;
@@ -82,7 +86,12 @@ export class DataAgent extends AIChatAgent<AgentEnv, AgentState> {
   async onChatMessage(onFinish: Parameters<AIChatAgent['onChatMessage']>[0]) {
     const env = this.env;
     const schemas = allowedSchemas(env);
-    const model = env.AI_MODEL ?? '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+
+    // Use OpenAI when key is available (synced from ~/.codex-agent/auth.json),
+    // fall back to Workers AI.
+    const useOpenAI = !!env.OPENAI_API_KEY;
+    const modelId = env.AI_MODEL
+      ?? (useOpenAI ? 'gpt-4.1-mini' : '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
 
     const dataTools = {
       list_tables: tool({
@@ -302,10 +311,12 @@ export class DataAgent extends AIChatAgent<AgentEnv, AgentState> {
       }),
     };
 
-    const workersai = createWorkersAI({ binding: env.AI });
+    const model = useOpenAI
+      ? createOpenAI({ apiKey: env.OPENAI_API_KEY! })(modelId)
+      : createWorkersAI({ binding: env.AI })(modelId as Parameters<ReturnType<typeof createWorkersAI>>[0]);
 
     const result = streamText({
-      model: workersai(model as Parameters<typeof workersai>[0]),
+      model: model as Parameters<typeof streamText>[0]['model'],
       system: `You are a helpful data assistant for a PostgreSQL database. You can explore tables, describe their structure, run read-only queries, and call database functions.
 
 When the user asks a question about their data:
