@@ -21,7 +21,7 @@ new_sqlite_classes = ["DataAgent"]
 # connection pool to Postgres.
 [[hyperdrive]]
 binding = "HYPERDRIVE"
-id = "00000000000000000000000000000000"
+id = "b903235c80cf45f09ff98b452ac73c9d"
 localConnectionString = "postgres://postgres:testpass@localhost:5433/cloudrest_example"
 
 [ai]
