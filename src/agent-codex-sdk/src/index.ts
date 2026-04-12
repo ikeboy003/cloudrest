@@ -24,7 +24,14 @@ export type {
 export { Thread } from './thread.js';
 export type { RunResult, RunStreamedResult, Input, UserInput } from './thread.js';
 export { Codex } from './agent-codex.js';
-export { discoverToken } from './auth.js';
+export {
+  discoverToken,
+  readCredentials,
+  storeCredentials,
+  clearCredentials,
+  AUTH_PATH,
+  CODEX_AGENT_DIR,
+} from './auth.js';
 export type { CodexOptions } from './codexOptions.js';
 export type {
   ThreadOptions,
