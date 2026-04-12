@@ -1,18 +1,13 @@
-// Auth — reads ~/.codex/auth.json written by `codex login`.
+// Auth — reads Codex credentials.
 //
-// The SDK uses the same credentials Codex CLI stores locally.
-// After running `codex login`, the tokens are cached at
-// ~/.codex/auth.json. This module reads that file.
-
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-// ── Paths ─────────────────────────────────────────────────────────
-
-const CODEX_HOME =
-  process.env['CODEX_HOME'] ?? join(homedir(), '.codex');
-const AUTH_FILE = join(CODEX_HOME, 'auth.json');
+// On a Worker:  reads from env.CODEX_AUTH_JSON (pushed via `wrangler secret put`)
+// Local dev:    reads from ~/.codex/auth.json (written by `codex login`)
+//
+// Deploy flow:
+//   1. Run `codex login` locally
+//   2. cat ~/.codex/auth.json | wrangler secret put CODEX_AUTH_JSON
+//   3. wrangler deploy
+//   4. Worker reads env.CODEX_AUTH_JSON at runtime
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -29,15 +24,42 @@ export interface CodexAuth {
   last_refresh: string;
 }
 
-// ── Read ──────────────────────────────────────────────────────────
+// ── Read from env (Worker) ────────────────────────────────────────
 
 /**
- * Read ~/.codex/auth.json. Returns the full auth object
- * or null if not found (user hasn't run `codex login`).
+ * Parse CODEX_AUTH_JSON from a Worker env binding.
+ * This is the primary path in production.
  */
-export function readAuth(): CodexAuth | null {
+export function readAuthFromEnv(env: { CODEX_AUTH_JSON?: string }): CodexAuth | null {
+  if (!env.CODEX_AUTH_JSON) return null;
   try {
-    const content = readFileSync(AUTH_FILE, 'utf-8');
+    return JSON.parse(env.CODEX_AUTH_JSON) as CodexAuth;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the access token from a Worker env binding.
+ */
+export function getAccessTokenFromEnv(env: { CODEX_AUTH_JSON?: string }): string | null {
+  const auth = readAuthFromEnv(env);
+  return auth?.tokens?.access_token ?? null;
+}
+
+// ── Read from disk (local dev / Node) ─────────────────────────────
+
+/**
+ * Read ~/.codex/auth.json from disk.
+ * Only works in Node.js — returns null on Workers (no filesystem).
+ */
+export async function readAuthFromDisk(): Promise<CodexAuth | null> {
+  try {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const codexHome = process.env['CODEX_HOME'] ?? path.join(os.homedir(), '.codex');
+    const content = fs.readFileSync(path.join(codexHome, 'auth.json'), 'utf-8');
     return JSON.parse(content) as CodexAuth;
   } catch {
     return null;
@@ -45,15 +67,14 @@ export function readAuth(): CodexAuth | null {
 }
 
 /**
- * Get the access token from ~/.codex/auth.json.
- * This is the token Codex uses to authenticate with OpenAI.
+ * Get the access token — tries env first, then disk.
  */
-export function getAccessToken(): string | null {
-  const auth = readAuth();
+export async function getAccessToken(env?: { CODEX_AUTH_JSON?: string }): Promise<string | null> {
+  if (env) {
+    const token = getAccessTokenFromEnv(env);
+    if (token) return token;
+  }
+  // Fallback to disk (local dev)
+  const auth = await readAuthFromDisk();
   return auth?.tokens?.access_token ?? null;
 }
-
-// ── Paths (exported for tooling) ──────────────────────────────────
-
-export const AUTH_PATH = AUTH_FILE;
-export const CODEX_DIR = CODEX_HOME;

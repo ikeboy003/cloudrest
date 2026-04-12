@@ -1,13 +1,10 @@
 // Codex — main entry point for the agent-codex-sdk.
 //
-// Usage:
-//   const codex = new Codex({ url: "http://localhost:8788" });
-//   const thread = codex.startThread();
-//   const result = await thread.run("What tables are in the database?");
-//   console.log(result.finalResponse);
+// On a Worker:
+//   const codex = await Codex.create({ url: "...", env });
 //
-// Auth is automatic — reads from ~/.wrangler/config/default.toml
-// (written by `wrangler login`), or CLOUDFLARE_API_TOKEN env var.
+// Local dev:
+//   const codex = await Codex.create({ url: "http://localhost:8788" });
 
 import WebSocket from 'ws';
 import { Thread } from './thread.js';
@@ -21,34 +18,50 @@ export class Codex {
   private _headers: Record<string, string>;
   private _connectTimeout: number;
 
-  constructor(options: CodexOptions) {
+  private constructor(
+    url: string,
+    agentName: string,
+    headers: Record<string, string>,
+    connectTimeout: number,
+  ) {
+    this._url = url;
+    this._agentName = agentName;
+    this._headers = headers;
+    this._connectTimeout = connectTimeout;
+  }
+
+  /**
+   * Create a Codex instance. Resolves auth from env (Worker) or disk (local dev).
+   */
+  static async create(options: CodexOptions): Promise<Codex> {
     let url = options.url.replace(/\/+$/, '');
     if (url.startsWith('http://')) url = 'ws://' + url.slice(7);
     else if (url.startsWith('https://')) url = 'wss://' + url.slice(8);
     else if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
       url = 'ws://' + url;
     }
-    this._url = url;
-    this._agentName = options.agentName ?? 'data-agent';
-    this._connectTimeout = options.connectTimeout ?? 10_000;
 
-    // Build headers with auto-discovered auth
     const headers = { ...(options.headers ?? {}) };
-    if (options.apiKey !== false && !headers['Authorization']) {
+    if (options.accessToken !== false && !headers['Authorization']) {
       const token =
-        typeof options.apiKey === 'string'
-          ? options.apiKey
-          : getAccessToken();
+        typeof options.accessToken === 'string'
+          ? options.accessToken
+          : await getAccessToken(options.env);
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
     }
-    this._headers = headers;
+
+    return new Codex(
+      url,
+      options.agentName ?? 'data-agent',
+      headers,
+      options.connectTimeout ?? 10_000,
+    );
   }
 
   /**
    * Start a new conversation thread.
-   * Each thread maps to a unique Durable Object instance.
    */
   startThread(options: ThreadOptions = {}): Thread {
     const name = options.name ?? generateThreadId();
@@ -57,7 +70,6 @@ export class Codex {
 
   /**
    * Resume a previously created thread by its ID.
-   * The Durable Object retains the conversation history.
    */
   resumeThread(id: string, _options: ThreadOptions = {}): Thread {
     return this._createThread(id);

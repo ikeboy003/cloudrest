@@ -5,9 +5,10 @@ export interface CodexOptions {
   url: string;
   /** Agent name in the URL path. Default: "data-agent". */
   agentName?: string;
-  /** OpenAI API key. If omitted, discovered from OPENAI_API_KEY env
-   *  or ~/.codex-agent/auth.json. Set to `false` to skip discovery. */
-  apiKey?: string | false;
+  /** Worker env with CODEX_AUTH_JSON secret. Pass this when running on a Worker. */
+  env?: { CODEX_AUTH_JSON?: string };
+  /** Explicit access token. Overrides env and disk discovery. */
+  accessToken?: string | false;
   /** Additional headers sent during the WebSocket upgrade. */
   headers?: Record<string, string>;
   /** Connection timeout in ms. Default: 10000. */
