@@ -13,8 +13,8 @@
 export interface Env {
   // ----- Bindings (Cloudflare runtime) -----
   HYPERDRIVE: Hyperdrive;
-  SCHEMA_CACHE: KVNamespace;
-  SCHEMA_COORDINATOR: DurableObjectNamespace;
+  SCHEMA_CACHE?: KVNamespace;
+  SCHEMA_COORDINATOR?: DurableObjectNamespace;
   REALTIME_DO?: DurableObjectNamespace;
 
   // ----- Database -----
@@ -52,6 +52,8 @@ export interface Env {
   MAX_QUERY_COST?: string;
   MAX_REQUEST_BODY_SIZE?: string;
   MAX_EMBED_DEPTH?: string;
+  MAX_BATCH_OPS?: string;
+  MAX_BATCH_BODY_BYTES?: string;
 
   // ----- OpenAPI -----
   OPENAPI_MODE?: string;
