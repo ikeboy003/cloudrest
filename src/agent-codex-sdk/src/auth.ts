@@ -18,9 +18,10 @@ import { join } from 'node:path';
 
 // ── Paths ─────────────────────────────────────────────────────────
 
-const CODEX_AGENT_HOME =
-  process.env['CODEX_AGENT_HOME'] ?? join(homedir(), '.codex-agent');
-const AUTH_FILE = join(CODEX_AGENT_HOME, 'auth.json');
+// Read from ~/.codex/auth.json — the exact file Codex CLI writes after `codex login`.
+const CODEX_HOME =
+  process.env['CODEX_HOME'] ?? join(homedir(), '.codex');
+const AUTH_FILE = join(CODEX_HOME, 'auth.json');
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -77,7 +78,7 @@ export function storeCredentials(apiKey: string): void {
     api_key: apiKey,
     stored_at: new Date().toISOString(),
   };
-  mkdirSync(CODEX_AGENT_HOME, { recursive: true });
+  mkdirSync(CODEX_HOME, { recursive: true });
   writeFileSync(AUTH_FILE, JSON.stringify(creds, null, 2) + '\n', {
     mode: 0o600, // Owner read/write only
   });
@@ -98,4 +99,4 @@ export function clearCredentials(): void {
 // ── Paths (exported for tooling) ──────────────────────────────────
 
 export const AUTH_PATH = AUTH_FILE;
-export const CODEX_AGENT_DIR = CODEX_AGENT_HOME;
+export const CODEX_DIR = CODEX_HOME;

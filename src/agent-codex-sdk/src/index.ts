@@ -30,7 +30,7 @@ export {
   storeCredentials,
   clearCredentials,
   AUTH_PATH,
-  CODEX_AGENT_DIR,
+  CODEX_DIR,
 } from './auth.js';
 export type { CodexOptions } from './codexOptions.js';
 export type {
