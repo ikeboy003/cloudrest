@@ -1,4 +1,3 @@
-import { describe as xdescribe, test as xtest } from 'vitest';
 // Nested-insert planner tests.
 //
 // Detects the `POST /orders` with `{ customer: 'x', line_items: [...] }`
@@ -67,7 +66,7 @@ function plan(body: Record<string, unknown>) {
   });
 }
 
-describe.skip('planMutation — nested insert detection', () => {
+describe('planMutation — nested insert detection', () => {
   it('detects a single child array matching an O2M relation', () => {
     const p = expectOk(
       plan({

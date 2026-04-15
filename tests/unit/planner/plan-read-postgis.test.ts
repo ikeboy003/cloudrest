@@ -1,4 +1,3 @@
-import { describe as xdescribe, test as xtest } from 'vitest';
 // PostGIS planner tests.
 //
 // Three concerns under test:
@@ -50,7 +49,7 @@ function plan(query: string) {
   });
 }
 
-describe.skip('planRead — geo.nearby lifting', () => {
+describe('planRead — geo.nearby lifting', () => {
   it('moves a geo.nearby filter onto the order list and clears it from filters', () => {
     const r = expectOk(plan('location=geo.nearby(40.7,-74.0)'));
     expect(r.filters).toHaveLength(0);
@@ -87,7 +86,7 @@ describe.skip('planRead — geo.nearby lifting', () => {
   });
 });
 
-describe.skip('planRead — geo filter validation', () => {
+describe('planRead — geo filter validation', () => {
   it('accepts geo.dwithin on a geometry column', () => {
     const r = expectOk(plan('location=geo.dwithin(40.7,-74.0,500)'));
     expect(r.filters).toHaveLength(1);
@@ -118,7 +117,7 @@ describe.skip('planRead — geo filter validation', () => {
   });
 });
 
-describe.skip('planRead — geoKinds map', () => {
+describe('planRead — geoKinds map', () => {
   it('populates geoKinds for tables with spatial columns', () => {
     const r = expectOk(plan(''));
     expect(r.geoKinds).not.toBeNull();
