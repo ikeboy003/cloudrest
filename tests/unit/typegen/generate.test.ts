@@ -190,7 +190,7 @@ describe('generateTypeScript — enums and vectors', () => {
       tableName: 'tasks',
       selectItems: parse('status'),
     });
-    expect(ts).toContain("status: 'todo' | 'doing' | 'done';");
+    expect(ts).toContain('status: "todo" | "doing" | "done";');
   });
 
   it('escapes quotes and backslashes in enum literal unions', () => {
@@ -215,6 +215,6 @@ describe('generateTypeScript — enums and vectors', () => {
       tableName: 'tasks',
       selectItems: parse('status'),
     });
-    expect(ts).toContain("status: 'todo' | 'o\\'clock' | 'back\\\\slash';");
+    expect(ts).toContain('status: "todo" | "o\'clock" | "back\\\\slash";');
   });
 });
