@@ -3,14 +3,12 @@
 // builder to render as LATERAL joins (or correlated subqueries, for
 // aggregate embeds).
 //
-// INVARIANT (CONSTITUTION §1.5): every embed is resolved, validated,
-// and annotated with its join-shape BEFORE any SQL is emitted. The
-// builder gets a fully typed plan and never needs to re-consult the
-// schema cache.
+// Every embed is resolved, validated, and annotated with its
+// join-shape BEFORE any SQL is emitted. The builder gets a fully
+// typed plan and never needs to re-consult the schema cache.
 //
-// INVARIANT (#125): the depth guard (`MAX_EMBED_DEPTH`) caps
-// recursion so circular or pathological relationship graphs cannot
-// wedge the planner.
+// The depth guard (`MAX_EMBED_DEPTH`) caps recursion so circular or
+// pathological relationship graphs cannot wedge the planner.
 
 import { err, ok, type Result } from '@/core/result';
 import {
@@ -110,12 +108,11 @@ export function planEmbeds(
   const rootFieldSelect: SelectItem[] = [];
   const embeds: EmbedNode[] = [];
 
-  // BUG FIX (#EE1): track every embed-path key visited during
-  // planning so we can reject orphan query params that target an
-  // embed the user never actually selected. Without this check,
-  // `?posts.title=eq.Hello` silently disappeared when there was no
-  // `posts` embed on the request, which is a silent contract
-  // violation — the user's filter did nothing.
+  // Track every embed-path key visited during planning so we can
+  // reject orphan query params that target an embed the user never
+  // actually selected. Without this check, `?posts.title=eq.Hello`
+  // silently disappeared when there was no `posts` embed on the
+  // request — the user's filter did nothing.
   const visitedPathKeys = new Set<string>();
 
   for (const item of input.rootSelect) {
@@ -144,11 +141,8 @@ export function planEmbeds(
     // Only fall back to the child-table-name match when no alias
     // matches, and when there is exactly one such embed.
     //
-    // BUG FIX (#FF4): the old resolver took the FIRST embed whose
-    // child table name matched, while the builder's alias map
-    // overwrote with the LAST. `select=a:authors(id),b:authors(name)&order=authors(name).desc`
-    // therefore validated against embed `a` and rendered against
-    // embed `b`. Refuse the ambiguity explicitly.
+    // Refuse ambiguity: when multiple embeds share a child-table name,
+    // `order=<table>(col)` is ambiguous and must be rejected.
     const aliasMatches = embeds.filter((e) => e.alias === term.relation);
     let match: EmbedNode | undefined;
     if (aliasMatches.length === 1) {
@@ -158,10 +152,8 @@ export function planEmbeds(
         (e) => e.child.target.name === term.relation,
       );
       if (tableMatches.length > 1) {
-        // BUG FIX (#HH10): the old code emitted PGRST201 here, but
-        // that code is reserved for "ambiguous RPC routine" in this
-        // codebase. Relationship ambiguity is PGRST200, which is
-        // what PostgREST itself uses.
+        // Relationship ambiguity is PGRST200 (PGRST201 is reserved for
+        // ambiguous RPC routines).
         return err(
           schemaErrors.ambiguousRelationship(
             `order refers to "${term.relation}" which is ambiguous — ${tableMatches.length} embeds share that relation name. Disambiguate by using the explicit alias (e.g. \`alias:relation(...)\`) and referring to it by alias in ORDER BY.`,
@@ -187,11 +179,8 @@ export function planEmbeds(
         httpStatus: 400,
       });
     }
-    // BUG FIX (#EE4): the planner used to check only that the embed
-    // exists. The ORDERED COLUMN itself was never validated against
-    // the child table, so `?order=authors(bogus).desc` passed
-    // planning and became a runtime SQL error. Do the column lookup
-    // here now that we know which embed the term refers to.
+    // Validate the ordered column against the child table so
+    // `?order=authors(bogus).desc` fails at plan time, not runtime.
     if (term.field.name === '*') {
       return err(
         parseErrors.queryParam(
@@ -212,8 +201,8 @@ export function planEmbeds(
     }
   }
 
-  // BUG FIX (#EE1): every non-root filter / logic / order / range
-  // path MUST correspond to an embed that exists on this request.
+  // Every non-root filter / logic / order / range path MUST
+  // correspond to an embed that exists on this request.
   // Orphans are PGRST108.
   const checkOrphan = (path: readonly string[], kind: string): Result<null, CloudRestError> => {
     if (path.length === 0) return ok(null);
@@ -268,11 +257,9 @@ function resolveEmbed(
   depth: number,
   visitedPathKeys: Set<string>,
 ): Result<EmbedNode, CloudRestError> {
-  // BUG FIX (#EE7): the cap used to be a hard-coded 8 — the
-  // runtime `MAX_EMBED_DEPTH` / `limits.maxEmbedDepth` config was
-  // ignored. `PlanEmbedsInput.maxEmbedDepth` is now threaded from
-  // the config load path (see plan-read.ts → planEmbeds) so a
-  // deployment can loosen or tighten the cap without a rebuild.
+  // `PlanEmbedsInput.maxEmbedDepth` is threaded from the config load
+  // path so a deployment can loosen or tighten the cap without a
+  // rebuild.
   const maxDepth = input.maxEmbedDepth ?? MAX_EMBED_DEPTH;
   if (depth > maxDepth) {
     return err({
@@ -336,20 +323,20 @@ function resolveEmbed(
   }
 
   const rel = resolution.relationship;
-  // BUG FIX (#HH11): the builder refuses to emit SQL for M2M embeds
-  // (`renderJoinCondition` returns `notImplemented`), but the
-  // planner used to walk right past them and only the builder would
-  // fail. Surface the unsupported-feature error from the planner
-  // layer where the request is still being validated, so it never
-  // reaches SQL composition.
-  if (rel.cardinality.type === 'M2M') {
+  const isToOne = relationshipIsToOne(rel);
+
+  // Spread embeds project the child's columns directly into the
+  // parent row. That only makes sense when each parent matches at most
+  // one child row — many-to-many matches yield row multiplication and
+  // there is no sensible way to flatten them.
+  if (isSpread && rel.cardinality.type === 'M2M') {
     return err(
-      parseErrors.notImplemented(
-        `many-to-many embed on "${embedName}" is not yet supported — use a spread embed or an explicit junction-table query`,
+      parseErrors.queryParam(
+        'select',
+        `spread embed "${embedName}" cannot target a many-to-many relationship`,
       ),
     );
   }
-  const isToOne = relationshipIsToOne(rel);
   const childTable = findTable(input.schema, rel.foreignTable);
   if (!childTable) {
     // Should not happen if the relationships map is well-formed, but
@@ -363,13 +350,10 @@ function resolveEmbed(
     );
   }
 
-  // BUG FIX (#EE1): the path segment the user writes in
-  // `?<path>.<col>=eq.X` is the ALIAS the user sees, not the
-  // underlying relation name. For `select=id,author:authors(name)&author.name=eq.Ada`,
-  // the param path is `['author']` but the relation name is
-  // `authors`. Walk with the alias so the match succeeds — and
-  // mark this key visited so the orphan check at the end of
-  // planEmbeds knows the user did reach this embed.
+  // The path segment the user writes in `?<path>.<col>=eq.X` is the
+  // ALIAS, not the underlying relation name. Walk with the alias so
+  // the match succeeds, and mark this key visited so the orphan check
+  // at the end of planEmbeds knows the user did reach this embed.
   const childPath: readonly string[] = [...pathPrefix, alias];
   const childPathKey = childPath.join('\0');
   visitedPathKeys.add(childPathKey);
@@ -422,13 +406,9 @@ function resolveEmbed(
   const childEmbeds: EmbedNode[] = [];
   for (const childItem of childSelectItems) {
     if (childItem.type === 'field') {
-      // BUG FIX (#EE2): the old check early-exited for aggregate
-      // fields (`childItem.aggregateFunction === undefined`), so
-      // `reviews(avg(nope))` planned cleanly and only blew up at
-      // the DB. Validate the column for BOTH plain and aggregate
-      // fields — the only shapes that are legitimately unchecked
-      // are the bare wildcard (`*`) and the `count(*)` form
-      // (aggregateFunction === 'count' && field.name === '*').
+      // Validate the column for both plain and aggregate fields — the
+      // only shapes that skip validation are the bare wildcard (`*`)
+      // and the `count(*)` form.
       const fieldName = childItem.field.name;
       const isBareWildcard =
         fieldName === '*' && childItem.aggregateFunction === undefined;
@@ -470,14 +450,9 @@ function resolveEmbed(
     if (!check.ok) return check;
   }
   for (const term of childOrder) {
-    // BUG FIX (#HH8): the old loop silently skipped any term with a
-    // `relation` prefix, saying "deeper relation — only validated
-    // at its own depth". But there IS no later depth — these are
-    // root-level child orders addressed from the query-param path,
-    // and the builder's child-order renderer has no embed-alias
-    // map. Validate them here against the embed subtree we have
-    // just planned so the user sees a PGRST108 at plan time
-    // instead of an opaque builder error at render time.
+    // Validate related-order terms against the embed subtree we have
+    // just planned so the user sees PGRST108 at plan time instead of
+    // an opaque builder error at render time.
     if (term.relation !== undefined) {
       // Prefer the explicit alias match; fall back to the nested
       // child-table name only when exactly one embed matches —
@@ -538,8 +513,7 @@ function resolveEmbed(
       }
       continue;
     }
-    // BUG FIX (#DD5): child `?rel.order=*.asc` used to slip through
-    // the same wildcard-skip hole as root order. Reject it here.
+    // Wildcard is not a valid ORDER BY target — reject it.
     if (term.field.name === '*') {
       return err(
         parseErrors.queryParam(
@@ -608,8 +582,7 @@ function validateFilterColumn(
   filter: Filter,
 ): Result<null, CloudRestError> {
   const name = filter.field.name;
-  // BUG FIX (#HH9): wildcard is not a filter column. See the
-  // matching fix in plan-read.ts:validateFilterColumn.
+  // Wildcard is not a valid filter column.
   if (name === '*') {
     return err(
       parseErrors.queryParam(

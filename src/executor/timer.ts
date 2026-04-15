@@ -1,10 +1,9 @@
 // `RequestTimer` — records per-request stage durations for the
 // `Server-Timing` response header.
 //
-// INVARIANT (Stage 7, READABILITY §12): there is ONE timer per
-// request, carried on `HandlerContext`. Handlers, the executor, and
-// the response finalizer all record stage durations against the same
-// instance. Stage 18 will feed this into `response/finalize.ts`.
+// INVARIANT: there is ONE timer per request, carried on
+// `HandlerContext`. Handlers, the executor, and the response
+// finalizer all record stage durations against the same instance.
 
 /**
  * Typed identifier for a recorded phase. A closed set lets the

@@ -3,8 +3,8 @@
 // RUNTIME: Cloudflare Workers forbid sharing I/O objects across
 // request handlers — a stream, socket, or `postgres.js` connection
 // created inside request A cannot be used from request B. This
-// makes CONSTITUTION §4.3 ("one long-lived client per isolate")
-// impossible on Workers: a memoized client hits the runtime error
+// makes a long-lived client per isolate impossible on Workers: a
+// memoized client hits the runtime error
 // "Cannot perform I/O on behalf of a different request" the second
 // time a different request touches it.
 //

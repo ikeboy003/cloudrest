@@ -1,7 +1,7 @@
 // Shared builder types.
 //
 // INVARIANT: There is exactly ONE BuiltQuery type in the rewrite.
-// CONSTITUTION §1.2. Adding a field here widens every builder at once;
+// Adding a field here widens every builder at once;
 // no builder may declare a local BuiltQuery interface.
 
 /**

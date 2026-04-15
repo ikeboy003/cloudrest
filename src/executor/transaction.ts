@@ -7,7 +7,7 @@
 // so internally we still throw sentinel objects — but the only thing
 // that ever leaves `runTransaction` is a `TransactionOutcome` union.
 //
-// INVARIANT (CONSTITUTION §4.1, critique #65): `SET LOCAL
+// INVARIANT: `SET LOCAL
 // statement_timeout` is issued on every transaction without exception.
 //
 // INVARIANT (critique #66): the transaction body runs in a fixed
@@ -132,7 +132,7 @@ async function runSteps(
 ): Promise<QueryResult> {
   const { main, options, statementTimeoutMs } = input;
 
-  // 1. `SET LOCAL ROLE <role>` — Stage 11 will populate.
+  // 1. `SET LOCAL ROLE <role>`.
   if (options.roleSql !== undefined && options.roleSql !== null && options.roleSql !== '') {
     await tx.unsafe(options.roleSql);
   }
@@ -141,9 +141,8 @@ async function runSteps(
   await tx.unsafe(renderStatementTimeoutSql(statementTimeoutMs));
 
   // 3. App GUCs (`set_config('request.jwt.claim.*', ...)`) — accepts
-  // either a raw SQL string (Stage 11 claim walker output, legacy)
-  // or a `{ sql, params }` pair so user-controlled values can be
-  // bound instead of inlined.
+  // either a raw SQL string or a `{ sql, params }` pair so user-
+  // controlled values can be bound instead of inlined.
   if (options.preQuerySql !== undefined && options.preQuerySql !== null) {
     if (typeof options.preQuerySql === 'string') {
       if (options.preQuerySql !== '') await tx.unsafe(options.preQuerySql);
@@ -253,8 +252,7 @@ function extractGucFromRows(
 }
 
 /**
- * Translate a thrown postgres-driver error into a CloudRestError. The
- * old code did this inline in the executor; Stage 7 centralizes it.
+ * Translate a thrown postgres-driver error into a CloudRestError.
  */
 function translatePgError(e: unknown): CloudRestError {
   if (e && typeof e === 'object') {

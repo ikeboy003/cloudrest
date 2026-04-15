@@ -1,23 +1,8 @@
 // HandlerContext — the single bundle of request-scoped dependencies that
-// every handler receives. This exists to kill the 10-positional-parameter
-// pattern the old code suffered from (see CRITIQUE.md #2 on READABILITY).
+// every handler receives.
 //
-// INVARIANT: A handler's public signature is always `(request, context)`.
+// A handler's public signature is always `(request, context)`.
 // Adding a dependency means adding a field here, not a positional parameter.
-//
-// Each field below is typed against the stage that first populates it.
-// Stages 2–8 widen these placeholders into real types. Placeholders exist
-// as `unknown` so that a too-early consumer is a type error, not a silent
-// `any` that compiles and explodes at runtime.
-//
-// See ARCHITECTURE.md § Lifecycle contracts for how this context flows
-// through the eight-step lifecycle.
-
-// ----- Real and placeholder types --------------------------------------
-//
-// Placeholders are replaced by real imports as each stage lands. The
-// placeholder strategy is deliberate: we want `context.schema` (etc.) to
-// fail typecheck before its stage lands, not compile as `any`.
 
 import type { AppConfig } from '@/config/schema';
 import type { Env } from '@/config/env';
@@ -29,16 +14,10 @@ import type { SchemaCache as RealSchemaCache } from '@/schema/cache';
 export type { AppConfig } from '@/config/schema';
 export type WorkerBindings = Env;
 
-/** Stage 8 — real type, re-exported for downstream consumers. */
 export type SchemaCache = RealSchemaCache;
 
-/**
- * Stage 8a — auth result is now the real `AuthClaims` shape. Stage
- * 11 will extend this with resolved-role and challenge-header fields.
- */
 export type AuthResult = AuthClaims;
 
-/** Stage 7 (executor/timing) — real type, re-exported for downstream consumers. */
 export type { RequestTimer } from '@/executor/timer';
 
 /**
@@ -76,12 +55,12 @@ export interface RequestContext {
  * this type, not every call site.
  */
 export interface HandlerContext extends RequestContext {
-  /** Validated, grouped config. Populated by stage 2. */
+  /** Validated, grouped config. */
   readonly config: AppConfig;
-  /** Schema introspection cache. Populated by stage 8. */
+  /** Schema introspection cache. */
   readonly schema: SchemaCache;
-  /** Authenticated role and JWT claims. Populated by stage 11. */
+  /** Authenticated role and JWT claims. */
   readonly auth: AuthResult;
-  /** Per-request timing recorder for Server-Timing. Populated by stage 7. */
+  /** Per-request timing recorder for Server-Timing. */
   readonly timer: RequestTimer;
 }

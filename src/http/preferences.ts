@@ -1,6 +1,6 @@
 // Prefer header parser.
 //
-// COMPAT: RFC 7240 preference semantics matching PostgREST's
+// RFC 7240 preference semantics matching PostgREST's
 // ApiRequest/Preferences.hs. Tokens are case-insensitive. Duplicate keys
 // keep the first occurrence (PostgREST-compatible).
 //
@@ -130,7 +130,7 @@ export function parsePrefer(
       case 'timezone':
         if (prefs.preferTimezone !== undefined || !rawValue) break;
         if (isValidTimezone(rawValue)) {
-          // COMPAT: IANA timezone names are case-sensitive.
+          // IANA timezone names are case-sensitive.
           prefs.preferTimezone = rawValue;
         } else {
           prefs.invalidPrefs.push(token);
@@ -158,7 +158,7 @@ export function parsePrefer(
  * Build the `Preference-Applied` response header value, or null when no
  * preferences were applied.
  *
- * COMPAT: `max-affected` only appears in Preference-Applied under
+ * `max-affected` only appears in Preference-Applied under
  * `handling=strict`, matching PostgREST.
  */
 export function preferenceAppliedHeader(prefs: Preferences): string | null {
@@ -185,13 +185,12 @@ export function preferenceAppliedHeader(prefs: Preferences): string | null {
 }
 
 function isValidTimezone(tz: string): boolean {
-  // BUG FIX (#GG14): `UTC` is the de-facto universal timezone and
-  // every real Postgres backend accepts it, but several older
-  // Node versions omit it from `Intl.supportedValuesOf('timeZone')`,
-  // and the cloudflare-workers runtime has historically shipped
-  // with a partial IANA list. Allow `UTC` (and the common
-  // case-normalized variants) explicitly up front so
-  // `Prefer: timezone=UTC` is never silently rejected.
+  // `UTC` is the de-facto universal timezone and every real Postgres
+  // backend accepts it, but several older Node versions omit it from
+  // `Intl.supportedValuesOf('timeZone')`, and the cloudflare-workers
+  // runtime has historically shipped with a partial IANA list. Allow
+  // `UTC` (and the common case-normalized variants) explicitly up
+  // front so `Prefer: timezone=UTC` is never silently rejected.
   if (tz === 'UTC' || tz === 'Etc/UTC' || tz === 'Zulu') return true;
 
   // Primary check: ask Intl whether the zone is valid. Rather than

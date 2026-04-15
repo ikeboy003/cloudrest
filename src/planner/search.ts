@@ -1,7 +1,7 @@
 // Full-text search planner — parses `?search=`, `?search.columns=`,
 // and `?search.language=` into a typed `SearchPlan`.
 //
-// INVARIANT (CONSTITUTION §1.5): the planner validates the column list
+// INVARIANT: the planner validates the column list
 // against the schema BEFORE handing off to the builder. The old code
 // silently dropped unknown columns and could degrade a request into a
 // match-nothing tsvector (IDENTIFIER-11). The rewrite rejects unknown

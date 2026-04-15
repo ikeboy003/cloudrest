@@ -1,8 +1,8 @@
 // SQL fragment renderers — one file per fragment kind.
 //
-// INVARIANT: This file is a thin barrel. Adding a new fragment renderer
-// means creating a new file under `builder/fragments/` and re-exporting
-// it here. See CONSTITUTION § Writing style.
+// This file is a thin barrel. Adding a new fragment renderer means
+// creating a new file under `builder/fragments/` and re-exporting
+// it here.
 
 export { renderField } from './fragments/field';
 export {

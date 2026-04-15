@@ -1,12 +1,10 @@
 // `handleRead` — orchestration for `GET /{relation}`.
 //
-// INVARIANT (CONSTITUTION §1.8 + ARCHITECTURE lifecycle): this
-// handler is a thin orchestration layer. Parse → plan → build →
-// execute → build response → finalize. The eight-step pipeline is
-// NOT hidden inside helpers; it is named here in a flat sequence so
-// a reader can trace what a GET does in one screenful.
+// This handler is a thin orchestration layer. Parse → plan → build →
+// execute → build response → finalize. The pipeline is named here in
+// a flat sequence so a reader can trace what a GET does in one
+// screenful.
 //
-// INVARIANT (READABILITY §big-four): no positional parameter bloat.
 // Every dependency comes through `context: HandlerContext`. Adding a
 // new dependency means widening HandlerContext, not this signature.
 
@@ -75,16 +73,12 @@ export async function handleRead(
 
   // 3. Plan the read.
   //
-  // BUG FIX (#HH1): `parseHttpRequest` computes `topLevelRange`
-  // from the `Range:` header BEFORE query params are parsed, so it
-  // has no visibility into `?limit=` / `?offset=`. Intersect the
-  // two here so a request like `/books?limit=10&offset=5` actually
-  // produces an effective range of `{offset: 5, limit: 10}` at
-  // planning time instead of `ALL_ROWS`.
-  //
-  // BUG FIX (#HH2): pass the configured `limits.maxEmbedDepth`
-  // through so runtime config controls the depth cap instead of
-  // the compiled-in default.
+  // `parseHttpRequest` computes `topLevelRange` from the `Range:`
+  // header BEFORE query params are parsed, so it has no visibility
+  // into `?limit=` / `?offset=`. Intersect the two here so a request
+  // like `/books?limit=10&offset=5` actually produces an effective
+  // range of `{offset: 5, limit: 10}` at planning time instead of
+  // `ALL_ROWS`.
   const queryRange: NonnegRange =
     parsed.value.ranges.get('limit') ?? { offset: 0, limit: null };
   const effectiveTopLevelRange = intersectRanges(
@@ -101,7 +95,7 @@ export async function handleRead(
     hasPreRequest: context.config.database.preRequest !== null,
     maxRows: context.config.database.maxRows,
     maxEmbedDepth: context.config.limits.maxEmbedDepth,
-    // BUG FIX (#HH3): honor `DB_AGGREGATES_ENABLED`.
+    // Honor `DB_AGGREGATES_ENABLED`.
     aggregatesEnabled: context.config.database.aggregatesEnabled,
   });
   if (!plan.ok) return plan;
@@ -112,12 +106,8 @@ export async function handleRead(
 
   // 5. Execute.
   //
-  // BUG FIX: the read handler used to hand `runQuery` a BuiltQuery
-  // only, so the authenticated role, per-request claim GUCs, and
-  // the `DB_PRE_REQUEST` hook were all silently dropped even though
-  // the executor supports every slot. Build the per-request SQL
-  // prelude here so RLS-gated policies actually see the claims and
-  // the role the router resolved.
+  // Build the per-request SQL prelude so RLS-gated policies see the
+  // claims and the role the router resolved.
   const prelude = buildRequestPrelude({
     auth: context.auth,
     config: context.config,
@@ -166,14 +156,7 @@ export async function handleRead(
  *
  * Singular-media "must be exactly 1 row" enforcement lives in the
  * media-validation step inside `buildReadResponse` / handler
- * follow-ups; Stage 8 hands back 200 for the happy path.
- *
- * BUG FIX (#HH6): the old implementation only returned 200 or 206
- * — the 416 case the comment promises was missing. A ranged
- * request whose offset sat past the total returned 206 with zero
- * rows instead of the proper 416 Range Not Satisfiable. Mirror
- * `rangeStatusHeader`'s shape and surface 416 when we have a
- * known total and the offset exceeds it.
+ * follow-ups.
  */
 function computeBaseStatus(
   plan: ReadPlan,

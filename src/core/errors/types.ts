@@ -2,7 +2,7 @@
 // This lets errors cross Worker isolate boundaries, serialize to JSON trivially,
 // and survive structured cloning without surprises.
 //
-// COMPAT: The `code` field follows PostgREST's PGRSTxxx convention. Unknown
+// The `code` field follows PostgREST's PGRSTxxx convention. Unknown
 // codes are a compat hazard; always reuse an existing code or allocate a new
 // one explicitly.
 

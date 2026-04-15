@@ -1,6 +1,6 @@
 // Schema cache errors — PGRST2xx.
 //
-// COMPAT: PostgREST emits these when the schema cache cannot satisfy a
+// PostgREST emits these when the schema cache cannot satisfy a
 // request — ambiguous or missing relationships, missing RPC functions,
 // unknown tables, unknown columns. Status 300 is used for "Multiple
 // Choices" on ambiguous relationships (PostgREST convention).

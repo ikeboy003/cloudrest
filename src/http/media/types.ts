@@ -3,9 +3,9 @@
 // INVARIANT: Every media type CloudREST understands appears in the
 // MEDIA_TYPES table exactly once. Adding a new response format means
 // adding a table entry, not grep-hunting across parser, response, and
-// router files. See CONSTITUTION § "Where do I add X?".
+// router files.
 //
-// COMPAT: The vendor-specific media types (application/vnd.pgrst.*) come
+// The vendor-specific media types (application/vnd.pgrst.*) come
 // from PostgREST. Their quality q-values and stripped-nulls semantics
 // match PostgREST.
 
@@ -43,10 +43,9 @@ export interface MediaType {
    * uses this flag to match the wildcard against every offered
    * media type whose registry entry shares that top-level type.
    *
-   * BUG FIX (#GG11): the old parser only recognized `* / *` and
-   * rejected `application/*`, so an Accept header of
-   * `application/*` produced a 406 even though the server could
-   * cleanly serve `application/json`.
+   * The parser recognizes both `* / *` and `application/*` subtype
+   * wildcards — an Accept of `application/*` matches any offered
+   * media type whose registry entry shares that top-level type.
    */
   readonly typeWildcard?: boolean;
 }
@@ -75,7 +74,7 @@ interface MediaTypeDefinition {
  *   2. Add a row below.
  *   3. Add a formatter in `http/media/format.ts`.
  *
- * COMPAT notes:
+ * Compatibility notes:
  *   - `application/vnd.pgrst.plan` (bare) aliases to `+text` per PostgREST.
  *   - `application/vnd.pgrst.array` (bare) aliases to `+json`.
  *   - `nulls=stripped` is an optional param on singular and array variants.
@@ -158,7 +157,7 @@ export const MEDIA_TYPES: readonly MediaTypeDefinition[] = [
     id: 'plan-text',
     type: 'application',
     subtype: 'vnd.pgrst.plan+text',
-    // COMPAT: bare `application/vnd.pgrst.plan` aliases to plan+text per PostgREST.
+    // Bare `application/vnd.pgrst.plan` aliases to plan+text per PostgREST.
     aliasSubtypes: ['vnd.pgrst.plan'],
     contentType: 'application/vnd.pgrst.plan+text',
     appendCharset: true,

@@ -4,9 +4,8 @@
 // reference (possibly aliased, cast, or aggregated), an embedded relation,
 // or a spread of an embedded relation.
 //
-// COMPAT: aggregate function names are a closed allowlist — see
-// CONSTITUTION §12.5. Adding a new aggregate requires adding it here AND
-// in parser/select.ts AND in the builder.
+// Aggregate function names are a closed allowlist. Adding a new aggregate
+// requires adding it here AND in parser/select.ts AND in the builder.
 
 import type { Field } from './field';
 import type { OrderTerm } from './order';

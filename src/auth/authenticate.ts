@@ -1,21 +1,4 @@
-// Top-level `authenticate` — the ONE entry point the router calls.
-//
-// STAGE 11 SECURITY FIXES applied here:
-//   §11.1 — explicit `alg=none` / unknown-alg reject with PGRST304
-//           BEFORE any key lookup.
-//   §11.2 — cache is hashed-key; see `jwt.ts`.
-//   §11.3 — cache entries are bounded-TTL; see `jwt.ts`.
-//   §11.4 — invalid tokens are negative-cached so an abusive
-//           client can't force re-verification on every request.
-//   §11.5 — JWKS cache is versioned by fetch timestamp; see `jwks.ts`.
-//   §11.6 — JWKS URL scheme allowlist: `https://` only. Plain
-//           `http://` is rejected with PGRST305 at this level so the
-//           operator sees a configuration error, not a silent token
-//           rejection down inside the verifier.
-//   §11.7 — `JWT_ROLE_CLAIM` is validated at config-load time
-//           (`config/load.ts::validateRoleClaim`) and the walker
-//           returns `undefined` on a parse failure so an empty path
-//           can never become "JSON.stringify(payload)".
+// Top-level `authenticate` — the single entry point the router calls.
 
 import { err, ok, type Result } from '@/core/result';
 import { authErrors, type CloudRestError } from '@/core/errors';
@@ -54,10 +37,8 @@ export async function authenticate(
 
   const bearerMatch = authHeader.match(/^Bearer(?:\s+(.*))?$/i);
   if (!bearerMatch) {
-    // BUG FIX (#GG8): a non-Bearer header is a credential the
-    // client wants us to honor — silently dropping it to anon
-    // lets an attacker present bogus credentials and still get
-    // the anon role. Return a 401 challenge.
+    // A non-Bearer scheme must not silently fall through to the
+    // anon role — return a 401 challenge.
     return err(
       authErrors.jwtDecodeError(
         'Authorization header must use the Bearer scheme',
@@ -72,8 +53,7 @@ export async function authenticate(
     );
   }
 
-  // §11.6 — JWKS scheme allowlist. Reject `http://` secrets (and
-  // anything that isn't https/PEM/HMAC) at the config boundary.
+  // SECURITY: JWKS scheme allowlist — reject plaintext HTTP.
   if (
     config.auth.jwtSecret !== null &&
     config.auth.jwtSecret.startsWith('http://')
@@ -81,7 +61,7 @@ export async function authenticate(
     return err(authErrors.jwksSchemeNotAllowed('http'));
   }
 
-  // §11.2-§11.4 — cached verification with hashed keys.
+  // Cached verification with hashed keys.
   const cached = await jwtCacheGet(token);
   if (cached.kind === 'ok') return ok(cached.result);
   if (cached.kind === 'err') {
@@ -95,8 +75,7 @@ export async function authenticate(
 
   const decodedResult = await verifyAndDecode(token, config);
   if (!decodedResult.ok) {
-    // §11.4 negative cache — don't cache server errors, only
-    // client-fault errors (401 range).
+    // Negative cache — only cache client-fault errors (401 range).
     if (decodedResult.error.httpStatus === 401) {
       await jwtCachePutErr(token);
     }
@@ -137,19 +116,9 @@ async function verifyAndDecode(
     return err(authErrors.jwtDecodeError('Unsupported token type'));
   }
 
-  // §11.1 — explicit `alg=none` and unknown-alg reject with PGRST304.
-  // The underlying `verifySignature` ALSO rejects these internally,
-  // but surfacing PGRST304 here gives operators a distinct error
-  // from PGRST301 ("cryptographic operation failed") — operators
-  // reading logs want to see "you tried to use alg=none" spelled
-  // out, not "signature mismatch".
-  //
-  // BUG FIX: the old code defaulted a missing `alg` header to
-  // `HS256`, so a token with NO alg claim would be verified as if
-  // the client had explicitly asked for HS256. That lets a client
-  // construct tokens that bypass strict-alg operator intent. Treat
-  // a missing or non-string `alg` as algorithm-not-allowed, the
-  // same shape as `alg=none`.
+  // Reject `alg=none`, unknown algs, and missing/non-string `alg`
+  // with a distinct PGRST304 so operators see a clear error, not
+  // just "signature mismatch".
   if (typeof header.alg !== 'string' || header.alg === '') {
     return err(authErrors.algNotAllowed('missing'));
   }
@@ -227,11 +196,8 @@ async function verifyAndDecode(
     }
   }
 
-  // BUG FIX (#GG2): when `jwtAudience` is configured, the token
-  // MUST carry a matching audience. The old code accepted any of
-  // { missing, null, empty array, non-matching array } as "skip
-  // validation" — so a token minted for a different API, or one
-  // with no aud at all, would authenticate against this deployment.
+  // When `jwtAudience` is configured, the token MUST carry a
+  // matching audience — missing or non-matching is rejected.
   const requiredAudience = config.auth.jwtAudience;
   if (requiredAudience) {
     const rawAud = 'aud' in payload ? payload['aud'] : undefined;
@@ -283,10 +249,8 @@ async function verifyAndDecode(
     }
   }
 
-  // §11.7 — the claim walker now returns `undefined` on a parse
-  // failure (see `auth/claims.ts` GG3 fix); the fallback below
-  // resolves to the configured default/anon role instead of the
-  // raw JSON payload.
+  // The claim walker returns `undefined` on a parse failure; the
+  // fallback resolves to the configured default/anon role.
   const roleValue = walkClaimPath(payload, config.auth.jwtRoleClaim);
   const role =
     stringifyClaimValue(roleValue) ??

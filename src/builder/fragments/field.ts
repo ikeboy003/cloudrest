@@ -26,7 +26,7 @@ export function renderField(
   field: Field,
   builder: SqlBuilder,
 ): Result<string, CloudRestError> {
-  // BUG FIX (#BB4): a wildcard Field combined with a JSON path would
+  // A wildcard Field combined with a JSON path would
   // render as `"schema"."table".*->$1`, which is not valid SQL. The
   // parser now rejects `*->key`, but keep a defensive guard here so
   // a malformed AST from a non-parser source cannot reach the driver.

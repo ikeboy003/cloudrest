@@ -124,6 +124,8 @@ describe('parsePayload — #44 body-size pre-check', () => {
     const config = makeTestConfig({
       limits: {
         maxBodyBytes: 10,
+        maxBatchBodyBytes: 10_485_760,
+        maxBatchOps: 100,
         maxEmbedDepth: 8,
         rateLimitRpm: 0,
         maxQueryCost: 0,

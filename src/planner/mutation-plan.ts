@@ -1,19 +1,18 @@
 // MutationPlan — typed description of an INSERT / UPDATE / DELETE /
 // UPSERT request handed from the planner to the mutation builder.
 //
-// INVARIANT (CONSTITUTION §1.1, §1.6): every feature is a FIELD on
-// the plan. The old code's `buildInsertQuery` vs `buildInsertCte`
-// parallel pair is collapsed to a single renderer driven by a
-// `wrap` flag on the plan.
+// Every feature is a FIELD on the plan. A `wrap` flag selects between
+// the wrapped-result form and the CTE-only form.
 //
-// INVARIANT (critique #74): `missingColumns` on InsertPlan is the
-// set of columns OMITTED from the payload that the planner wants
-// the builder to omit from the INSERT column list (so the DB applies
-// its DEFAULT). For `missing=null` the planner instead includes
-// every non-defaulted column and lets the body's NULL flow through.
+// `missingColumns` on InsertPlan is the set of columns OMITTED from
+// the payload that the planner wants the builder to omit from the
+// INSERT column list (so the DB applies its DEFAULT). For
+// `missing=null` the planner instead includes every non-defaulted
+// column and lets the body's NULL flow through.
 
 import type { QualifiedIdentifier } from '@/http/request';
 import type { Filter, LogicTree } from '@/parser/types';
+import type { EmbedNode } from './embed-plan';
 
 export type WrapShape = 'result' | 'cteOnly';
 
@@ -24,7 +23,7 @@ export type ReturnPreference = 'minimal' | 'headersOnly' | 'full';
  * whether it's generated, whether it carries a DEFAULT expression.
  *
  * Matches a subset of `schema/table.ts::Column`. Kept separate so a
- * Stage 9 MutationPlan stays self-contained.
+ * MutationPlan stays self-contained.
  */
 export interface PlannedColumn {
   readonly name: string;
@@ -64,6 +63,18 @@ export interface InsertPlan {
   readonly returnPreference: ReturnPreference;
   /** 'result' = full wrapped result; 'cteOnly' = just the CTE SQL. */
   readonly wrap: WrapShape;
+  /** Nested inserts for related tables. */
+  readonly nestedInserts?: readonly NestedInsertChild[];
+  readonly graphReturnEmbeds?: readonly EmbedNode[];
+}
+
+export interface NestedInsertChild {
+  readonly relation: string;
+  readonly target: QualifiedIdentifier;
+  readonly parentRefColumn: string;
+  readonly childFkColumn: string;
+  readonly columns: readonly PlannedColumn[];
+  readonly rawBody: string;
 }
 
 export interface UpdatePlan {

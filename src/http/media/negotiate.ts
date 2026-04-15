@@ -21,15 +21,14 @@ export interface NegotiationRequest {
  * Pick the first offered media type that matches the client's Accept
  * list. Returns an error with the raw Accept header in the detail.
  *
- * COMPAT: `*` / `*` (id `any`) matches anything; the first offered
- * type wins. `type/*` (e.g. `application/*`) matches any offered
- * type whose registry entry shares the top-level type.
+ * `*` / `*` (id `any`) matches anything; the first offered type wins.
+ * `type/*` (e.g. `application/*`) matches any offered type whose
+ * registry entry shares the top-level type.
  *
- * BUG FIX (#GG12): q=0 entries are now honored as explicit
- * exclusions — an offered type that matches a q=0 entry is skipped
- * even under a later wildcard match, so
- * `Accept: application/json;q=0, (star)/(star)` will NOT select
- * `json` even though it is the first offered type.
+ * q=0 entries are honored as explicit exclusions — an offered type
+ * that matches a q=0 entry is skipped even under a later wildcard
+ * match, so `Accept: application/json;q=0, (star)/(star)` will NOT
+ * select `json` even though it is the first offered type.
  */
 export function negotiateOutputMedia(
   request: NegotiationRequest,

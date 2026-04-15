@@ -4,7 +4,7 @@
 // lifecycle step: bad query params, unknown operators, unsupported media,
 // invalid ranges, malformed payloads.
 //
-// COMPAT: PostgREST uses PGRST100 for unknown query params, PGRST102 for
+// PostgREST uses PGRST100 for unknown query params, PGRST102 for
 // invalid body, PGRST103 for unsatisfiable range, PGRST105 for filter
 // constraint, PGRST107 for media type, PGRST108 for embeds, PGRST122 for
 // strict preference violations, PGRST125 for invalid resource paths.
@@ -133,11 +133,14 @@ export const parseErrors = {
   },
 
   notImplemented(detail: string): CloudRestError {
+    // A request that uses syntax the server doesn't yet implement is not
+    // malformed — it's a server capability gap. RFC 9110 §15.6.2 maps
+    // this case to 501, not 400.
     return makeError({
       code: 'PGRST127',
       message: 'Not implemented',
       details: detail,
-      httpStatus: 400,
+      httpStatus: 501,
     });
   },
 };

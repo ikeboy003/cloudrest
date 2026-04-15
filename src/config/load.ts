@@ -2,7 +2,6 @@
 //
 // INVARIANT: No silent fallback. A present but invalid env var is a
 // ConfigError, not a default. An absent env var is a default.
-// See CONSTITUTION §3.1.
 //
 // INVARIANT: loadConfig collects ALL errors, not just the first, so an
 // operator sees every misconfiguration at once.
@@ -22,6 +21,7 @@ import type {
   OpenApiMode,
   TxEndMode,
 } from './schema';
+import { parsePresets } from '@/presets/parse';
 import type { ErrorVerbosity } from '@/core/errors';
 import { parseClaimPath } from '@/auth/claims';
 
@@ -90,8 +90,8 @@ function parseOptionalInt(
  * Parse a strict tri-state boolean: 'true', 'false', or absent.
  * Anything else (including 'TRUE', 'yes', '1') is a ConfigError.
  *
- * INVARIANT: We do not do JavaScript-casual bool parsing, because "off"
- * silently becoming "false" is how config bugs hide.
+ * We do not do JavaScript-casual bool parsing, because "off" silently
+ * becoming "false" is how config bugs hide.
  */
 function parseBool(
   name: string,
@@ -173,11 +173,10 @@ function parseAppSettings(
 /**
  * Validate a JWT role-claim path. Parser is intentionally strict:
  * steps must be `.name`, `[index]`, or `.["literal"]`. Anything else
- * is a ConfigError at boot; see CONSTITUTION §5.6.
+ * is a ConfigError at boot.
  *
- * This Stage 2 validator is syntactic only — it rejects obvious typos
- * like `app..role`, `app[broken`, or an empty string. Full semantic
- * parsing lands with the auth stage.
+ * Syntactic only — rejects obvious typos like `app..role`,
+ * `app[broken`, or an empty string.
  */
 function validateRoleClaim(
   value: string | undefined,
@@ -225,7 +224,7 @@ function validateRoleClaim(
     });
     return '.role';
   }
-  // BUG FIX (#GG3): run the real runtime parser as the final check.
+  // Run the real runtime parser as the final check.
   // The syntactic tests above catch the common typos
   // (`app..role`, `app[broken`), but they let shapes like `.role!`
   // through because there is no `..`, trailing `.`, or trailing `[`.
@@ -295,7 +294,7 @@ function buildDatabase(env: Env, errors: ConfigError[]): DatabaseConfig {
       true,
       errors,
     ),
-    // SECURITY: debug mode defaults off in production. See CONSTITUTION §11.2.
+    // SECURITY: debug mode defaults off in production.
     debugEnabled: parseBool('DB_DEBUG_ENABLED', env.DB_DEBUG_ENABLED, false, errors),
     planEnabled: parseBool('DB_PLAN_ENABLED', env.DB_PLAN_ENABLED, false, errors),
     appSettings: parseAppSettings(env.APP_SETTINGS, errors),
@@ -347,7 +346,6 @@ function buildAuth(env: Env, errors: ConfigError[]): AuthConfig {
 
 function buildCors(env: Env): CorsConfig {
   // SECURITY: CORS is opt-in. Unset → null → preflights return 403.
-  // See CONSTITUTION §10.1.
   const origins = parseCommaList(env.CORS_ALLOWED_ORIGINS);
   return {
     allowedOrigins: origins.length > 0 ? origins : null,
@@ -383,6 +381,20 @@ function buildLimits(env: Env, errors: ConfigError[]): LimitsConfig {
       0,
       errors,
       { min: 0 },
+    ),
+    maxBatchBodyBytes: parseIntRequired(
+      'MAX_BATCH_BODY_SIZE',
+      env.MAX_BATCH_BODY_BYTES,
+      10_485_760, // 10 MiB
+      errors,
+      { min: 1 },
+    ),
+    maxBatchOps: parseIntRequired(
+      'MAX_BATCH_OPS',
+      env.MAX_BATCH_OPS,
+      100,
+      errors,
+      { min: 1 },
     ),
   };
 }
@@ -449,6 +461,12 @@ export function loadConfig(env: Env): Result<AppConfig, readonly ConfigError[]> 
     limits: buildLimits(env, errors),
     openApi: buildOpenApi(env, errors),
     observability: buildObservability(env, errors),
+    presets: parsePresets(env.QUERY_PRESETS),
+    realtime: {
+      enabled: (env.REALTIME_ENABLED ?? 'false') === 'true',
+      pollIntervalMs: parseIntRequired('REALTIME_POLL_INTERVAL_MS', env.REALTIME_POLL_INTERVAL_MS, 1000, errors, { min: 100 }),
+      maxBatchSize: parseIntRequired('REALTIME_MAX_BATCH_SIZE', env.REALTIME_MAX_BATCH_SIZE, 100, errors, { min: 1 }),
+    },
   };
 
   if (errors.length > 0) return err(errors);

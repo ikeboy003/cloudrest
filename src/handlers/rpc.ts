@@ -1,13 +1,9 @@
 // `handleRpc` — orchestration for `POST /rpc/foo` and `GET /rpc/foo`.
 //
-// INVARIANT (critique #48): the "empty body on POST /rpc/fn means
-// `{}`" shortcut lives HERE, not in the generic payload parser.
-// Injecting a default `{}` from `parsePayload` would change the
-// semantics of every other POST endpoint.
-//
-// Stage 10 scope: single routine invocation with scalar, setOf-scalar,
-// or composite return. Volatile functions get POST, stable/immutable
-// allow GET (via `routineCall` with `invokeRead`).
+// The "empty body on POST /rpc/fn means `{}`" shortcut lives HERE,
+// not in the generic payload parser. Injecting a default `{}` from
+// `parsePayload` would change the semantics of every other POST
+// endpoint.
 
 import { err, type Result } from '@/core/result';
 import type { CloudRestError } from '@/core/errors';

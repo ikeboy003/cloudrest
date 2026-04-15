@@ -1,7 +1,7 @@
 // Vector-similarity planner — parses `?vector=`, `?vector.column=`,
 // and `?vector.op=` into a typed `VectorPlan`.
 //
-// INVARIANT (CONSTITUTION §1.5): column existence is validated against
+// INVARIANT: column existence is validated against
 // the schema here. The rewrite refuses to emit SQL against a missing
 // column; the old code would surface the error from Postgres after a
 // round trip.
@@ -68,12 +68,7 @@ export function planVector(
       ),
     );
   }
-  // BUG FIX (#EE6): the old planner only checked that the column
-  // exists. `?vector.column=title` pointed at a text column would
-  // pass planning and then fail at the DB with "operator does not
-  // exist: text <-> text". The pgvector column type is `vector`
-  // (or `halfvec`/`sparsevec` for the newer variants); match any
-  // of those and reject everything else here.
+  // The column must be a pgvector type (vector, halfvec, or sparsevec).
   if (!isVectorColumnType(columnMeta.type)) {
     return err(
       parseErrors.queryParam(
@@ -83,14 +78,9 @@ export function planVector(
     );
   }
 
-  // BUG FIX (#HH12): also check the literal length against the
-  // declared dimension (e.g. `vector(1536)`) when it is known.
-  // Wrong-dimension requests used to reach Postgres and fail with
-  // a confusing `expected N dimensions, not M` error. Pulling the
-  // dimension from `nominalType` catches the mismatch at plan
-  // time; columns that do not carry a declared dimension
-  // (`vector` with no modifier) skip the check — the DB will
-  // accept anything in that case anyway.
+  // Check the literal length against the declared dimension (e.g.
+  // `vector(1536)`) when it is known. Columns without a declared
+  // dimension skip the check.
   const declaredDim = extractVectorDimension(columnMeta.nominalType);
   if (declaredDim !== null && declaredDim !== parsed.value.length) {
     return err(

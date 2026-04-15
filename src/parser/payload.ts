@@ -1,20 +1,12 @@
 // Request body parser — JSON, CSV, form-urlencoded, octet-stream.
 //
-// INVARIANT (CONSTITUTION §1.5): parsing is grammatical only. This
+// INVARIANT: parsing is grammatical only. This
 // module decides WHAT the body means; validating columns against a
 // schema is the planner's job.
 //
-// STAGE 4 HARDENING (critiques #44, #46, #47):
-//   #44: body size is checked BEFORE `request.text()` buffers the
-//        whole thing — a Content-Length > `limits.maxBodyBytes` is
-//        rejected with PGRST413 without reading the socket.
-//   #46: form-urlencoded with duplicate keys is rejected instead of
-//        silently keeping the last value. PostgREST merges duplicates
-//        differently from every client library, so rejecting is the
-//        only sane default.
-//   #47: CSV `NULL` is an opt-in via `?csv.null=`. The old code
-//        unconditionally treated the literal text `NULL` as SQL NULL,
-//        breaking any row that contained a legitimate `"NULL"` string.
+// Body size is checked BEFORE `request.text()` buffers the whole
+// thing. Form-urlencoded with duplicate keys is rejected. CSV `NULL`
+// is opt-in via `?csv.null=`.
 
 import { err, ok, type Result } from '@/core/result';
 import { parseErrors, type CloudRestError } from '@/core/errors';
@@ -101,8 +93,8 @@ export async function parsePayload(
   const raw = await request.text();
 
   // Empty body handling. RPC gets a default `{}` (critique #48 moves
-  // this to the RPC handler); Stage 9 just returns null and lets the
-  // mutation planner treat missing body as "no columns to write".
+  // this to the RPC handler); just return null and let the mutation
+  // planner treat missing body as "no columns to write".
   if (raw.length === 0 || raw.trim() === '') {
     return ok(null);
   }

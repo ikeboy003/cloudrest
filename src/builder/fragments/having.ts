@@ -1,15 +1,7 @@
 // HAVING clause rendering.
 //
-// BUG FIX (#BB1, #BB2, #BB3): the old HAVING renderer had its own
-// hand-rolled op-type switch with a `default: return ok('')` fallthrough
-// that silently dropped isDistinctFrom / fts / geo ops — the filter
-// disappeared and the query became broader than requested. It also
-// ignored the `(any)` / `(all)` quantifier on opQuant, and skipped the
-// `*` → `%` wildcard rewrite that plain like/ilike filters apply.
-//
-// The rewrite delegates to the shared `renderOpExprOnExpr` helper in
-// filter.ts, so HAVING and WHERE use exactly the same op coverage and
-// cannot drift.
+// Delegates to the shared `renderOpExprOnExpr` helper in filter.ts,
+// so HAVING and WHERE use exactly the same op coverage and cannot drift.
 
 import { parseErrors, type CloudRestError } from '@/core/errors';
 import { err, ok, type Result } from '@/core/result';
@@ -33,10 +25,7 @@ export function renderHaving(
       if (!clause.field) {
         aggExpr = 'COUNT(*)';
       } else {
-        // BUG FIX (#BB4/#BB5): parser already rejects `count(*).op.val`
-        // (only the no-arg `count()` form produces `field: undefined`),
-        // but belt-and-braces: never let a `*` field name slip into
-        // `COUNT(table.*)` rendering.
+        // Never let a `*` field name slip into `COUNT(table.*)` rendering.
         if (clause.field.name === '*') {
           return err(
             parseErrors.queryParam(

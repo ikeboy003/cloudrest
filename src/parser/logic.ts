@@ -48,9 +48,8 @@ export function parseLogicTree(
   const parts = partsResult.value;
   const children: LogicTree[] = [];
 
-  // BUG FIX (#H): a stray comma inside the group (`and=(a.eq.1,,b.eq.2)`
-  // or `and=(,)`) used to silently drop the empty child. splitTopLevel
-  // is quote-aware so an empty entry here is unambiguously structural.
+  // A stray comma produces an empty child — splitTopLevel is quote-aware
+  // so an empty entry here is unambiguously structural.
   for (const part of parts) {
     const trimmed = part.trim();
     if (!trimmed) {
@@ -93,10 +92,8 @@ export function parseLogicTree(
     if (filterStr.startsWith('not.')) {
       filterNegated = true;
       filterStr = filterStr.slice(4);
-      // BUG FIX (#I): chained `not.not.col.eq.5` is not a recognized
-      // form — parseOpExpr handles a single value-side `not.` and the
-      // logic-tree leaf handles a single wrapper `not.`. Anything more
-      // is a parse error, not a field named `not.col`.
+      // Chained `not.not.col.eq.5` is not a recognized form — only one
+      // wrapper `not.` is allowed at the logic-tree leaf level.
       if (filterStr.startsWith('not.')) {
         return err(
           parseErrors.queryParam(
@@ -154,21 +151,9 @@ export function parseLogicTree(
  *   - JSON-path keys: `data->>'a.b'.eq.x`
  *   - FTS with language: `data.fts(english).word`
  *
- * BUG FIX (#14): the old scan took the LEFTMOST dot whose suffix looked
- * like an operator, so a column named like an op token in an embed path
- * (`actors.eq.name.eq.John`) would split at the wrong place. The
- * rewrite scans RIGHT-TO-LEFT for the last valid op-start.
- *
- * BUG FIX (#AA17): the previous iteration of this helper also tried to
- * extend the split leftward through a preceding `.not` segment so that
- * `col.not.eq.5` would produce `{key: 'col', value: 'not.eq.5'}`.
- * PostgREST's logic-tree grammar does not use that value-side form —
- * the canonical way to negate a leaf inside `and=(...)` is the
- * wrapper form `not.col.eq.5`, already handled by the outer
- * `filterStr.startsWith('not.')` strip. The extension rule was
- * therefore solving a non-problem while actively breaking columns
- * literally named `not` (`actors.not.eq.1` became field `actors`).
- * Drop the extension.
+ * Scans RIGHT-TO-LEFT for the last valid op-start to avoid
+ * mis-splitting on column names that look like operator tokens
+ * in an embed path (`actors.eq.name.eq.John`).
  */
 function splitLogicLeaf(
   filterStr: string,

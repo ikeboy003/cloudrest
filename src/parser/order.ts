@@ -24,11 +24,7 @@ export function parseOrder(raw: string): Result<readonly OrderTerm[], CloudRestE
   const partsResult = splitTopLevel(raw, ',', { context: 'order' });
   if (!partsResult.ok) return partsResult;
 
-  // BUG FIX (#C/#N): `order=col.desc,,col2.asc` used to silently drop
-  // the empty middle term. Use the quote-aware split output to detect
-  // empty entries — a simple `raw.includes(',,')` false-positives on
-  // quoted JSON keys like `data->>"a,,b"` where the comma is inside
-  // the quoted region.
+  // Use the quote-aware split output to detect empty entries.
   for (const part of partsResult.value) {
     const trimmed = part.trim();
     if (!trimmed) {
@@ -37,18 +33,16 @@ export function parseOrder(raw: string): Result<readonly OrderTerm[], CloudRestE
       );
     }
 
-    // BUG FIX (#23): reject structurally malformed terms.
+    // Reject structurally malformed terms.
     if (trimmed.startsWith('.') || trimmed.endsWith('.')) {
       return err(
         parseErrors.queryParam('order', `malformed order term: "${trimmed}"`),
       );
     }
 
-    // BUG FIX (#E): a relation-qualified order term's field argument is
-    // a full Field, which may contain quoted JSON keys whose contents
-    // include `)` characters — `author(data->>"a)b").desc`. The old
-    // regex `\(([^)]+)\)` stopped at the first `)`. Scan with quote
-    // awareness and paren depth instead.
+    // A relation-qualified order term's field argument may contain
+    // quoted JSON keys with `)` characters. Scan with quote awareness
+    // and paren depth.
     const relInfo = matchRelationOrderPrefix(trimmed);
     if (relInfo) {
       const { relation, fieldName, modifierStr } = relInfo;
@@ -125,10 +119,7 @@ interface Modifiers {
 function parseModifiers(raw: string): Result<Modifiers, CloudRestError> {
   const out: { direction?: OrderDirection; nullOrder?: NullOrder } = {};
   if (!raw) return ok(out);
-  // BUG FIX (#D): the old code used `.filter(Boolean)` which silently
-  // collapsed `col..desc` and `col.desc..nullsfirst` into valid modifier
-  // lists. Any empty segment (from a doubled dot or a leading dot that
-  // is not the prefix we always prepend) is a parse error.
+  // Any empty segment (from a doubled dot) is a parse error.
   //
   // Callers prepend a leading `.` to normalize the form, so we always
   // see an empty FIRST segment from the split. Skip exactly that first

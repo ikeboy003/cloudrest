@@ -1,15 +1,14 @@
 // SqlBuilder — owns SQL text accumulation and parameter allocation.
 //
-// INVARIANT: `addParam` is monotonic — every call returns a fresh `$N`
-// that is never reused, never rewritten, never compacted. Downstream
-// code that needs to reorder or splice SQL must use fresh builders and
-// combine their rendered output; it must NOT reach into an already-
-// built SQL string to rewrite `$N` references. CONSTITUTION §1.1.
+// `addParam` is monotonic — every call returns a fresh `$N` that is
+// never reused, never rewritten, never compacted. Downstream code that
+// needs to reorder or splice SQL must use fresh builders and combine
+// their rendered output; it must NOT reach into an already-built SQL
+// string to rewrite `$N` references.
 //
-// INVARIANT: The only way user-controlled values reach SQL is through
-// `addParam`. Builders do not inline user strings with `pgFmtLit`;
-// `pgFmtLit` is reserved for database-catalog strings (see
-// builder/identifiers.ts). CONSTITUTION §1.3.
+// The only way user-controlled values reach SQL is through `addParam`.
+// Builders do not inline user strings with `pgFmtLit`; `pgFmtLit` is
+// reserved for database-catalog strings (see builder/identifiers.ts).
 
 import type { BuiltQuery } from './types';
 
@@ -57,7 +56,7 @@ export class SqlBuilder {
 
   /**
    * Mark this query so the executor skips reading the `pgrst_source`
-   * GUCs from the result. Used for prequery-only queries (stage 7).
+   * GUCs from the result. Used for prequery-only queries.
    */
   markSkipGucRead(): this {
     this.skipGucRead = true;

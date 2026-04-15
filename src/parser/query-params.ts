@@ -82,12 +82,10 @@ export function parseQueryParams(
   let searchColumns: string | null = null;
   let searchLanguage: string | null = null;
   let searchIncludeRank = false;
-  // BUG FIX (#HH7): track whether `search.rank` was SET separately
-  // from its boolean value, so the side-param guard can still flag
-  // `search.rank=false` without a `search=` as a malformed shape
-  // and so the strict validator below can reject unknown tokens
-  // (`search.rank=banana`) instead of silently treating them as
-  // false.
+  // Track whether `search.rank` was SET separately from its boolean
+  // value, so the side-param guard can flag `search.rank=false`
+  // without a `search=` as malformed, and the strict validator
+  // rejects unknown tokens (`search.rank=banana`).
   let searchRankExplicit = false;
 
   for (const [key, value] of params.entries()) {
@@ -135,10 +133,8 @@ export function parseQueryParams(
     }
 
     if (key === 'columns') {
-      // BUG FIX (#M/#P): `columns=a,,b` used to silently become `a,b`,
-      // and `columns=a, ,b` slipped past the old raw-string check via
-      // the whitespace-only middle entry. Check each trimmed item from
-      // the quote-aware split.
+      // `columns=a,,b` and `columns=a, ,b` are parse errors. Check each
+      // trimmed item from the quote-aware split.
       if (value === '') {
         return err(
           parseErrors.queryParam('columns', 'empty column list'),
@@ -153,10 +149,7 @@ export function parseQueryParams(
             parseErrors.queryParam('columns', 'empty column (stray comma)'),
           );
         }
-        // BUG FIX (#AA19): columns must be plain SQL identifiers.
-        // The old check only rejected empties, so `columns=a b`,
-        // `columns=a;DROP`, `columns=data->key`, and `columns=*` all
-        // slipped through into the mutation handler.
+        // Columns must be plain SQL identifiers.
         if (!isPlainIdentifier(col)) {
           return err(
             parseErrors.queryParam(
@@ -171,7 +164,7 @@ export function parseQueryParams(
     }
 
     if (key === 'on_conflict') {
-      // BUG FIX (#M/#P): same shape as `columns`.
+      // Same shape as `columns`.
       if (value === '') {
         return err(
           parseErrors.queryParam('on_conflict', 'empty column list'),
@@ -186,8 +179,7 @@ export function parseQueryParams(
             parseErrors.queryParam('on_conflict', 'empty column (stray comma)'),
           );
         }
-        // BUG FIX (#AA19): on_conflict entries must be plain SQL
-        // identifiers — see `columns` above.
+        // on_conflict entries must be plain SQL identifiers.
         if (!isPlainIdentifier(col)) {
           return err(
             parseErrors.queryParam(
@@ -208,9 +200,7 @@ export function parseQueryParams(
       continue;
     }
 
-    // BUG FIX: the old dispatcher listed `distinct` in the reserved set
-    // and then never parsed it — the feature was only half-wired. Stage 4
-    // now routes it to parser/distinct.ts and stores the result on
+    // Route to parser/distinct.ts and store the result on
     // ParsedQueryParams.distinct for the planner to consume.
     if (key === 'distinct') {
       const result = parseDistinct(value);
@@ -281,10 +271,8 @@ export function parseQueryParams(
     }
 
     // ----- Cursor / vector (threaded through for downstream stages) -----
-    // BUG FIX (#Z): these keys used to fall into the blanket `RESERVED`
-    // drop below and disappear. They now land on `ParsedQueryParams`
-    // so the executor (cursor HMAC) and the planner (vector search)
-    // can consume them as those features come online.
+    // These keys land on `ParsedQueryParams` so the executor (cursor
+    // HMAC) and the planner (vector search) can consume them.
     if (key === 'cursor') {
       cursor = value;
       continue;
@@ -301,10 +289,8 @@ export function parseQueryParams(
       vectorOp = value;
       continue;
     }
-    // BUG FIX (#EE5): search was previously routed through a
-    // side-channel on `PlanReadInput`, leaving the parser-to-planner
-    // contract asymmetric with vector. Thread all four search keys
-    // through `ParsedQueryParams` the same way.
+    // Thread all four search keys through `ParsedQueryParams` the same
+    // way as vector keys.
     if (key === 'search') {
       searchTerm = value;
       continue;
@@ -318,13 +304,10 @@ export function parseQueryParams(
       continue;
     }
     if (key === 'search.rank') {
-      // BUG FIX (#HH7): strict validation. The old code silently
-      // collapsed any value to `false` when it wasn't a truthy
-      // spelling, so `search.rank=banana` became "no rank" instead
-      // of a parse error. Accept a closed set of truthy/falsy
-      // tokens and reject everything else. Also mark the flag as
-      // explicitly set so the side-param guard below can refuse
-      // `search.rank=false` without a `search=` value.
+      // Accept a closed set of truthy/falsy tokens and reject
+      // everything else. Also mark the flag as explicitly set so the
+      // side-param guard below can refuse `search.rank=false` without
+      // a `search=` value.
       const lowered = value.toLowerCase();
       if (lowered === 'true' || lowered === '1' || lowered === 'yes') {
         searchIncludeRank = true;
@@ -370,10 +353,8 @@ export function parseQueryParams(
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join('&');
 
-  // BUG FIX (#AA12): `vector.column=embedding&vector.op=cosine` without
-  // a `vector=...` value used to silently drop both side params, same
-  // smell as the old "reserved key disappears" bug. Either all vector
-  // inputs are absent, or the primary `vector` value is required.
+  // Either all vector inputs are absent, or the primary `vector` value
+  // is required.
   if (vectorValue === null && (vectorColumn !== null || vectorOp !== null)) {
     return err(
       parseErrors.queryParam(
@@ -387,13 +368,12 @@ export function parseQueryParams(
       ? null
       : { value: vectorValue, column: vectorColumn, op: vectorOp };
 
-  // BUG FIX (#EE5 / #AA12 parity, #HH7): side params without a
-  // primary `search=` value are almost always a user typo. Refuse
-  // the partial shape up front rather than silently ignoring them.
-  // `search.rank` participates regardless of its boolean value —
-  // the guard watches `searchRankExplicit` so `search.rank=false`
-  // without a `search=` still errors, matching the vector.* side
-  // param behavior.
+  // Side params without a primary `search=` value are almost always a
+  // user typo. Refuse the partial shape up front rather than silently
+  // ignoring them. `search.rank` participates regardless of its
+  // boolean value — the guard watches `searchRankExplicit` so
+  // `search.rank=false` without a `search=` still errors, matching
+  // the vector.* side param behavior.
   if (
     searchTerm === null &&
     (searchColumns !== null || searchLanguage !== null || searchRankExplicit)
@@ -444,8 +424,7 @@ export function parseQueryParams(
  * segments silently become invalid embed references later; reject here
  * instead so users see a PGRST100 for the typo.
  *
- * BUG FIX (#L): the old dispatcher passed these raw segments straight
- * to the planner and logic/order collectors.
+ * Validates embed-path segments are non-empty plain SQL identifiers.
  */
 function validateEmbedPath(
   segments: readonly string[],
@@ -456,9 +435,7 @@ function validateEmbedPath(
       parseErrors.queryParam(key, `missing embed path in "${key}"`),
     );
   }
-  // BUG FIX (#AA11): segments must be plain SQL identifiers. The old
-  // check only caught empties, so `bad-name.order=id.asc`,
-  // `bad;name.and=(...)`, and `bad-name.limit=1` all slipped through.
+  // Segments must be plain SQL identifiers.
   for (const segment of segments) {
     if (segment === '') {
       return err(

@@ -1,15 +1,12 @@
 // RpcPlan — typed description of a `POST /rpc/fn` (or `GET /rpc/fn`)
 // handed from the planner to the RPC builder.
 //
-// INVARIANT (CONSTITUTION §1.1): every feature is a field. There
-// are no "maybe this, maybe that" side channels — the planner
-// decides the calling convention (named args vs single JSON body
-// vs no args) and the builder renders it directly.
-//
-// Stage 10 scope: scalar, setOf-scalar, composite, and setOf-
-// composite returns. Filter/order/range layering on top of the
-// RPC result set is supported through the same fields the read
-// plan uses.
+// Every feature is a field. There are no "maybe this, maybe that"
+// side channels — the planner decides the calling convention (named
+// args vs single JSON body vs no args) and the builder renders it
+// directly. Scalar, setOf-scalar, composite, and setOf-composite
+// returns are all supported. Filter/order/range layering on top of
+// the RPC result set uses the same fields the read plan uses.
 
 import type { QualifiedIdentifier } from '@/http/request';
 import type {

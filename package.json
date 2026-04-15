@@ -13,11 +13,16 @@
   },
   "license": "AGPL-3.0-only",
   "dependencies": {
-    "postgres": "^3.4.9"
+    "agents": "^0.11.0",
+    "ai": "^6.0.161",
+    "postgres": "^3.4.9",
+    "workers-ai-provider": "^3.1.10",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260413.1",
     "@types/node": "^25.6.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^6.0.2",
     "vitest": "^4.1.4",
     "wrangler": "^4.81.1"

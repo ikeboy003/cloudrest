@@ -1,19 +1,5 @@
 // Edge cache key derivation.
 //
-// STAGE 13 FIXES (critiques #31, #32, #33):
-//   #31 — the key now includes a FINGERPRINT of the caller's role
-//         and any JWT claims listed in `cache.claimsInKey`. A request
-//         from `role=viewer, org=acme` is cached separately from
-//         `role=viewer, org=evil`.
-//   #32 — caching is OPT-IN per table. A table not listed in
-//         `config.cache.tables` bypasses the cache entirely. The
-//         old code cached everything by default, which let a
-//         mis-configured role leak rows across tenants.
-//   #33 — `shouldCache` refuses to cache when a pre-request hook is
-//         configured. A pre-request can emit per-request headers or
-//         apply RLS via `SET LOCAL` — caching the response
-//         cross-request would bypass the hook.
-//
 // INVARIANT: cache keys are PURE functions of `(request, config,
 // auth)`. The cache layer never consults `context.bindings` at key-
 // derivation time.
@@ -51,7 +37,7 @@ export interface CacheKeyInput {
  *  - no pre-request hook may be configured.
  *
  * All three of those land as `'skip'` results with a human-readable
- * reason so a `?__cache=debug` knob (Stage 13+) can echo it back.
+ * reason so a `?__cache=debug` knob can echo it back.
  */
 export function deriveCacheDecision(input: CacheKeyInput): CacheDecision {
   const { httpRequest, config } = input;
@@ -62,8 +48,7 @@ export function deriveCacheDecision(input: CacheKeyInput): CacheDecision {
   }
   if (httpRequest.action.headersOnly) {
     // HEAD requests still cacheable in principle; the finalizer
-    // strips the body. For Stage 13 we skip them to keep the code
-    // path narrow.
+    // strips the body. We skip them to keep the code path narrow.
     return { decision: 'skip', reason: 'HEAD request' };
   }
   if (httpRequest.method !== 'GET') {

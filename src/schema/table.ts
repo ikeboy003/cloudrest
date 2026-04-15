@@ -22,6 +22,8 @@ export interface Column {
   readonly generated: boolean;
   /** PostGIS geometry or geography column. */
   readonly isGeo: boolean;
+  /** PostGIS geometry kind (point, polygon, etc.) or null. */
+  readonly geoKind: string | null;
 }
 
 export interface Table {

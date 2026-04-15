@@ -4,12 +4,12 @@
 // option slots the executor pipeline expects:
 //
 //   1. `roleSql`        — `SET LOCAL ROLE <role>`, built from
-//                          `context.auth.role`. CONSTITUTION §1.3:
-//                          the role is a configured identifier (from
-//                          `DB_ANON_ROLE`, `DB_JWT_DEFAULT_ROLE`, or
-//                          a JWT claim), so it is quoted with
-//                          `escapeIdent` rather than bound — `SET
-//                          LOCAL ROLE` does not accept placeholders.
+//                          `context.auth.role`. The role is a
+//                          configured identifier (from `DB_ANON_ROLE`,
+//                          `DB_JWT_DEFAULT_ROLE`, or a JWT claim), so
+//                          it is quoted with `escapeIdent` rather than
+//                          bound — `SET LOCAL ROLE` does not accept
+//                          placeholders.
 //   2. `preQuerySql`    — the `request.jwt.claims` + per-claim
 //                          `request.jwt.claim.<key>` + request
 //                          metadata (`request.method`, `request.path`,
@@ -76,7 +76,7 @@ function renderRoleSql(role: string | null | undefined): string | null {
   if (role === null || role === undefined || role === '') return null;
   // `SET LOCAL ROLE` does not accept bind parameters; the role is a
   // server-side identifier. We quote it with `escapeIdent` — the same
-  // helper every other identifier flows through (CONSTITUTION §1.4).
+  // helper every other identifier flows through.
   return `SET LOCAL ROLE ${escapeIdent(role)}`;
 }
 

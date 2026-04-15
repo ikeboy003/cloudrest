@@ -31,9 +31,9 @@ export function renderOpExpr(
   opExpr: OpExpr,
   builder: SqlBuilder,
 ): Result<string, CloudRestError> {
-  // BUG FIX (#BB4/#BB5): a Field with name `*` should never reach this
-  // code path. `renderField` happily emits `"schema"."table".*`, which
-  // produces invalid SQL in a filter context (`table.* = $1`) and in a
+  // A Field with name `*` should never reach this code path.
+  // `renderField` happily emits `"schema"."table".*`, which produces
+  // invalid SQL in a filter context (`table.* = $1`) and in a
   // JSON-path context (`table.*->$1`). Reject the shape here so the
   // builder fails loudly instead of emitting broken SQL.
   if (field.name === '*') {
@@ -56,9 +56,8 @@ export function renderOpExpr(
  * HAVING clauses do not re-implement the op-type switch and therefore
  * cannot silently drop op types they did not explicitly handle.
  *
- * BUG FIX (#BB1): the old HAVING renderer had its own opaque switch
- * with a `default: return ok('')` fallthrough, which dropped
- * isDistinctFrom / fts / geo ops entirely and broadened the query.
+ * Shared by `renderOpExpr` (plain filters) and `renderHaving` so that
+ * HAVING clauses do not re-implement the op-type switch.
  */
 export function renderOpExprOnExpr(
   col: string,
@@ -81,9 +80,7 @@ export function renderOpExprOnExpr(
       // escape every SQL LIKE metacharacter so that untransformed
       // user input cannot become a wildcard by accident.
       //
-      // BUG FIX (#BB16): the old escape missed `%`, so `ilike.%`
-      // matched every row. Escape `%` first, then the other
-      // metacharacters, then rewrite `*` → `%`.
+      // Escape `%` before other metacharacters, then rewrite `*` → `%`.
       if (op.operator === 'like' || op.operator === 'ilike') {
         boundValue = op.value
           .replace(/\\/g, '\\\\')
@@ -112,8 +109,7 @@ export function renderOpExprOnExpr(
 
     case 'fts': {
       const ftsOp = FTS_OPS[op.operator];
-      // SECURITY: even the language token goes through addParam. The
-      // old code inlined it after an allowlist check. Critique #10.
+      // SECURITY: even the language token goes through addParam.
       const langPart = op.language ? `${builder.addParam(op.language)}, ` : '';
       return ok(
         `${not}${col} ${ftsOp}(${langPart}${builder.addParam(op.value)})`,
@@ -121,14 +117,10 @@ export function renderOpExprOnExpr(
     }
 
     case 'geo':
-      // BUG FIX (#BB17): geo support is explicitly out of scope for
-      // this builder pass. The parser accepts `geo.within(...)`,
-      // `geo.dwithin(...)`, etc., but rendering them correctly needs
-      // PostGIS function emission (`ST_DWithin`, `ST_GeomFromGeoJSON`,
-      // `ST_GeomFromText`) plus its own test harness. Keeping the
-      // error EXPLICIT ensures a filter containing geo ops never
-      // silently drops — the request fails with PGRST127 instead of
-      // returning a broader, unintended result set.
+      // Geo support is not yet implemented. The parser accepts
+      // `geo.within(...)`, `geo.dwithin(...)`, etc., but rendering
+      // them correctly needs PostGIS function emission. The request
+      // fails with PGRST127 instead of silently dropping the filter.
       return err(
         parseErrors.notImplemented(
           'geo operations are not yet implemented in the rewrite builder; use ST_* directly via RPC for now',

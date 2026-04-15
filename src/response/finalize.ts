@@ -1,9 +1,9 @@
 // Response finalization — `RawDomainResponse → HTTP Response`.
 //
-// INVARIANT (CONSTITUTION §1.7 + READABILITY §12): every response exits
-// through THIS function. GUC overrides, Server-Timing, cache headers,
-// Content-Range, ETag, and Content-Length all live here, in the order
-// a correct HTTP pipeline requires:
+// Every response exits through THIS function. GUC overrides,
+// Server-Timing, cache headers, Content-Range, ETag, and
+// Content-Length all live here, in the order a correct HTTP pipeline
+// requires:
 //
 //   1. Apply GUC status / headers (may reject with PGRST111/112).
 //   2. Compute the HTTP status (singular / range / GUC).
@@ -12,10 +12,6 @@
 //   5. Compute and attach ETag (for caching).
 //   6. Emit Server-Timing from `context.timer` if enabled.
 //   7. Attach Content-Length from the final body.
-//
-// Stage 8 wires the core path; Stages 11 (Bearer challenge), 13
-// (cache), 18 (Server-Timing) widen this module without changing
-// the eight-step structure.
 
 import { err, ok, type Result } from '@/core/result';
 import { parseErrors, type CloudRestError } from '@/core/errors';
@@ -56,14 +52,12 @@ export function finalizeResponse(
 
   // ----- 0. Invalid-preferences guardrail -----
   //
-  // BUG FIX: `parsePrefer` records every preference token the
-  // client sent but that we couldn't apply (unknown key, unknown
-  // value, or server-forbidden override). Under
-  // `Prefer: handling=strict` PostgREST returns 400 PGRST122 with
-  // the offending tokens; under the default lenient path it adds
-  // a `Warning` header so misconfigured clients don't fail hard.
-  // The old finalizer ignored `invalidPrefs` entirely, silently
-  // accepting every malformed Prefer token.
+  // `parsePrefer` records every preference token the client sent
+  // but that we couldn't apply (unknown key, unknown value, or
+  // server-forbidden override). Under `Prefer: handling=strict`
+  // PostgREST returns 400 PGRST122 with the offending tokens;
+  // under the default lenient path it adds a `Warning` header so
+  // misconfigured clients don't fail hard.
   if (prefs.invalidPrefs.length > 0 && prefs.preferHandling === 'strict') {
     return err(
       parseErrors.invalidPreferences(prefs.invalidPrefs.join(', ')),
@@ -91,14 +85,12 @@ export function finalizeResponse(
 
   // ----- 4b. Location (INSERT/UPSERT with a primary key) -----
   //
-  // BUG FIX: the mutation SQL wrapper already emits a `header`
-  // column with the Location-key pairs, but `shapeDomainResponse`
-  // used to drop it on the floor and the finalizer never emitted
-  // a Location: header at all. Now the handler carries it on
-  // `locationQuery` and we render `<path>?<pk>=eq.<value>` here.
-  // Only emits for 201 Created (and 303, if a GUC override sets
-  // it) — we follow PostgREST's behavior of not emitting Location
-  // on UPDATE/DELETE even when the rows have a PK.
+  // The mutation SQL wrapper emits a `header` column with the
+  // Location-key pairs; the handler carries it on `locationQuery`
+  // and we render `<path>?<pk>=eq.<value>` here. Only emits for
+  // 201 Created (and 303, if a GUC override sets it) — PostgREST
+  // does not emit Location on UPDATE/DELETE even when the rows
+  // have a PK.
   const locationQuery = response.locationQuery;
   if (
     typeof locationQuery === 'string' &&
@@ -125,10 +117,10 @@ export function finalizeResponse(
 
   // ----- 6b. Preference-Applied / Warning -----
   //
-  // BUG FIX: emit `Preference-Applied` summarizing every
-  // preference we honored, and — under lenient handling — a
-  // `Warning` header naming every preference we dropped. The
-  // strict branch above already shortcircuits to PGRST122.
+  // Emit `Preference-Applied` summarizing every preference we
+  // honored, and — under lenient handling — a `Warning` header
+  // naming every preference we dropped. The strict branch above
+  // already short-circuits to PGRST122.
   const appliedHeader = preferenceAppliedHeader(prefs);
   if (appliedHeader !== null) headers.set('Preference-Applied', appliedHeader);
   if (prefs.invalidPrefs.length > 0) {
@@ -147,11 +139,11 @@ export function finalizeResponse(
 
   // ----- 8. HEAD handling — strip body -----
   //
-  // BUG FIX: status codes 204/205/304 are defined to have NO body at
-  // all in RFC 9110. The Fetch spec enforces this: calling `new
-  // Response(body, { status: 204 })` with a non-null body throws.
-  // Collapse the body to `null` for any null-body status so DELETE
-  // (which defaults to 204) doesn't blow up.
+  // Status codes 204/205/304 are defined to have NO body in
+  // RFC 9110. The Fetch spec enforces this: `new Response(body,
+  // { status: 204 })` with a non-null body throws. Collapse the
+  // body to `null` for any null-body status so DELETE (which
+  // defaults to 204) doesn't blow up.
   const isHead =
     httpRequest.action.type === 'relationRead' &&
     httpRequest.action.headersOnly;
@@ -179,13 +171,12 @@ function buildContentLocation(httpRequest: ParsedHttpRequest): string {
 }
 
 /**
- * Weak ETag — `W/"<hex>"` over the body. The cache correctness diff
- * (Stage 13) canonicalizes the body before hashing; Stage 8 ships the
- * minimal form so conditional-GET works for deterministic responses.
+ * Weak ETag — `W/"<hex>"` over the body. Conditional-GET works for
+ * deterministic responses; a stronger hash can replace this once a
+ * cache layer lands.
  */
 function computeWeakEtag(body: string): string {
   // A 32-bit FNV-1a over the UTF-8 bytes — good enough for a weak ETag.
-  // Stage 13 swaps this for a strong hash once the cache layer lands.
   let hash = 0x811c9dc5;
   for (let i = 0; i < body.length; i++) {
     hash ^= body.charCodeAt(i);
@@ -204,6 +195,6 @@ function renderServerTiming(timer: RequestTimer): string {
   return parts.join(', ');
 }
 
-/** Re-export of the media-registry helper for Stage 8 callers. */
+/** Re-export of the media-registry helper for response callers. */
 export { contentTypeFor } from '@/http/media/types';
 export type { MediaTypeId } from '@/http/media/types';

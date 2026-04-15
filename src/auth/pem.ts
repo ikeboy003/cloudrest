@@ -1,20 +1,10 @@
 // PEM → CryptoKey helpers (RSA / ECDSA).
-//
-// Stage 8a: file move only. Behavior-preserving port of
-// `algToHash`, `algToEcCurve`, `pemToArrayBuffer`, and
-// `importPemKey` from cloudrest-public/src/auth.ts.
-//
-// The cached key pair at module scope mirrors the old behavior — a
-// refactor that replaces this with an LRU lands in stage 11.
 
 // ----- Module-level cache ----------------------------------------------
 //
-// BUG FIX (#GG5): the cache used to be keyed only by the PEM text,
-// but the imported WebCrypto key bakes in the hash algorithm
-// (`SHA-256` vs `SHA-384` vs `SHA-512`). After an RS256 import, a
-// later RS512 token with the same PEM would hit the cache and verify
-// against the wrong hash — effectively downgrading the algorithm.
-// The cache is now keyed by `(pem, alg)`.
+// The cache is keyed by `(pem, alg)` because the imported WebCrypto
+// key bakes in the hash algorithm — reusing a key imported for RS256
+// when verifying RS512 would silently downgrade the algorithm.
 
 const pemKeyCache = new Map<string, CryptoKey>();
 
@@ -33,11 +23,7 @@ export function __resetPemCacheForTest(): void {
 
 // ----- Algorithm helpers -----------------------------------------------
 
-// BUG FIX (#GG4): the old `algToHash` matched by suffix, so any
-// string ending in `256`/`384`/`512` silently mapped to a SHA
-// variant — `RS999256` or `ESfoo512` would verify as SHA-256/512
-// instead of being rejected. Map only the exact JWS Alg names
-// defined in RFC 7518 §3.
+// Only exact JWS alg names from RFC 7518 section 3 are accepted.
 const ALG_TO_HASH: ReadonlyMap<string, string> = new Map([
   ['HS256', 'SHA-256'],
   ['HS384', 'SHA-384'],
@@ -102,10 +88,9 @@ export function pemToArrayBuffer(pem: string): ArrayBuffer {
  * Import a PEM public key as a Web Crypto CryptoKey. Returns null when
  * the algorithm is unsupported or the PEM can't be parsed.
  *
- * BUG FIX (#GG4/#GG5): only strict JWS `alg` names from the RFC 7518
- * allowlist are accepted, and the cache is keyed by BOTH the PEM text
- * AND the alg so a later token with the same PEM but a different
- * alg cannot reuse a key imported with the wrong hash.
+ * Only strict JWS `alg` names from the RFC 7518 allowlist are accepted,
+ * and the cache is keyed by both PEM text and alg so a token with a
+ * different alg cannot reuse a key imported with the wrong hash.
  */
 export async function importPemKey(
   pem: string,

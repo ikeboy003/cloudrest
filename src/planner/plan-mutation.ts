@@ -1,18 +1,18 @@
 // Mutation planner — turns (ParsedQueryParams + Payload + Preferences
 // + SchemaCache) into a typed `MutationPlan`.
 //
-// INVARIANT (CONSTITUTION §1.5): schema-aware validation lives here.
-// The builder trusts the plan and never revalidates column names.
+// Schema-aware validation lives here. The builder trusts the plan and
+// never revalidates column names.
 //
-// INVARIANT (critique #74): defaulted columns that are absent from
-// the payload are EXCLUDED from the INSERT column list so the DB
-// applies the DEFAULT. For `Prefer: missing=null`, the planner
-// INCLUDES every non-defaulted column so `json_to_record` returns
-// NULL — matching PostgREST's semantics.
+// Defaulted columns that are absent from the payload are EXCLUDED from
+// the INSERT column list so the DB applies the DEFAULT. For
+// `Prefer: missing=null`, the planner INCLUDES every non-defaulted
+// column so `json_to_record` returns NULL — matching PostgREST's
+// semantics.
 //
-// INVARIANT (critique #76): `RETURNING` fields are handled in the
-// builder, not by string-surgery. The plan flags the preference;
-// the builder emits `RETURNING table.*` explicitly.
+// `RETURNING` fields are handled in the builder, not by string-surgery.
+// The plan flags the preference; the builder emits `RETURNING table.*`
+// explicitly.
 
 import { err, ok, type Result } from '@/core/result';
 import {
@@ -33,11 +33,13 @@ import type { SchemaCache } from '@/schema/cache';
 import { findTable } from '@/schema/cache';
 import type { Column, Table } from '@/schema/table';
 import { findColumn } from '@/schema/table';
+import { resolveRelationship } from '@/schema/relationship';
 import type {
   ConflictResolution,
   DeletePlan,
   InsertPlan,
   MutationPlan,
+  NestedInsertChild,
   OnConflictPlan,
   PlannedColumn,
   ReturnPreference,
@@ -97,10 +99,14 @@ function planInsert(
 ): Result<InsertPlan, CloudRestError> {
   const payload = normalizeJsonPayload(input.payload);
   if (!payload.ok) return payload;
-  const { rawBody, isArrayBody, payloadKeys, isEmptyPayload } = payload.value;
+  const { isArrayBody } = payload.value;
+
+  const nestedResult = planNestedInserts(input, table, payload.value);
+  if (!nestedResult.ok) return nestedResult;
+  const { parentRawBody, parentPayloadKeys, nestedInserts } = nestedResult.value;
 
   // Validate any keys the client sent — unknown columns are a 400.
-  for (const key of payloadKeys) {
+  for (const key of parentPayloadKeys) {
     if (!findColumn(table, key)) {
       return err(
         schemaErrors.columnNotFound(
@@ -127,7 +133,7 @@ function planInsert(
   const columnsToEmit =
     missing === 'null'
       ? [...table.columns.values()]
-      : [...payloadKeys]
+      : [...parentPayloadKeys]
           .map((k) => findColumn(table, k))
           .filter((c): c is Column => c !== undefined);
 
@@ -150,7 +156,7 @@ function planInsert(
   );
   if (!onConflict.ok) return onConflict;
 
-  // BUG FIX: an empty JSON array body (`[]`) has `isEmptyPayload=true`
+  // An empty JSON array body (`[]`) has `isEmptyPayload=true`
   // AND `isArrayBody=true`. Without this guard the request would flow
   // through the `defaultValues` branch and the builder would emit
   // `INSERT ... DEFAULT VALUES`, inserting ONE default row for a
@@ -160,12 +166,12 @@ function planInsert(
   // `columns: []`, and the builder's `WHERE false` escape hatch
   // produces the correct empty-result shape.
   const defaultValues =
-    isEmptyPayload && !isArrayBody && selectedColumns.length === 0;
+    !isArrayBody && parentPayloadKeys.size === 0 && selectedColumns.length === 0;
 
   return ok({
     kind: 'insert',
     target: input.target,
-    rawBody,
+    rawBody: parentRawBody,
     isArrayBody,
     columns: selectedColumns,
     defaultValues,
@@ -173,6 +179,7 @@ function planInsert(
     primaryKeyColumns: table.primaryKeyColumns,
     returnPreference,
     wrap: input.wrap,
+    nestedInserts,
   });
 }
 
@@ -187,13 +194,9 @@ function planUpdate(
   if (!payload.ok) return payload;
   const { rawBody, payloadKeys, isArrayBody } = payload.value;
 
-  // BUG FIX: PATCH with an array JSON body used to flow through
-  // the builder as-is, where `json_to_record($1::json)` would
-  // fail at Postgres runtime with an opaque parse error because
-  // it expects a JSON object, not an array. PostgREST rejects
-  // the same request at parse time with PGRST102. Mirror that
-  // behavior — PATCH semantics are "apply ONE set of values to
-  // ALL matched rows", which an array cannot express.
+  // PATCH with an array JSON body is rejected — PATCH semantics are
+  // "apply ONE set of values to ALL matched rows", which an array
+  // cannot express. PostgREST rejects the same with PGRST102.
   if (isArrayBody) {
     return err(
       parseErrors.invalidBody(
@@ -214,13 +217,10 @@ function planUpdate(
     }
   }
 
-  // BUG FIX: embedded filters (`?authors.name=eq.Bob`) are not
-  // supported on mutations. The parser collects them on
-  // `filtersNotRoot` and the planner used to silently ignore that
-  // list, which meant a request with ONLY embedded filters planned
-  // with NO WHERE clause — a table-wide UPDATE/DELETE. Refuse the
-  // request at plan time so the builder never sees a mutation
-  // missing its WHERE.
+  // Embedded filters (`?authors.name=eq.Bob`) are not supported on
+  // mutations. A request with ONLY embedded filters would plan with
+  // NO WHERE clause — a table-wide UPDATE/DELETE. Refuse at plan
+  // time so the builder never sees a mutation missing its WHERE.
   const embeddedCheck = rejectEmbeddedFilters(input.parsed);
   if (embeddedCheck !== null) return err(embeddedCheck);
 
@@ -250,10 +250,8 @@ function planUpdate(
     }
   }
 
-  // BUG FIX: root logic trees (`?or=(...)`) used to reach the SQL
-  // layer without any column validation — a typo inside a logic
-  // tree surfaced as an opaque Postgres error. Walk the tree the
-  // same way plan-read does so bad columns become clean PGRST204.
+  // Validate root logic tree columns so a typo inside a logic tree
+  // surfaces as PGRST204 instead of an opaque Postgres error.
   for (const tree of logic) {
     const check = validateLogicTreeColumns(table, tree);
     if (!check.ok) return check;
@@ -298,9 +296,8 @@ function planDelete(
   table: Table,
   returnPreference: ReturnPreference,
 ): Result<DeletePlan, CloudRestError> {
-  // BUG FIX: reject embedded filters — see planUpdate for context.
-  // A DELETE with only embedded filters would plan with NO WHERE
-  // clause and wipe the table.
+  // Reject embedded filters — a DELETE with only embedded filters
+  // would plan with NO WHERE clause and wipe the table.
   const embeddedCheck = rejectEmbeddedFilters(input.parsed);
   if (embeddedCheck !== null) return err(embeddedCheck);
 
@@ -328,7 +325,7 @@ function planDelete(
     }
   }
 
-  // BUG FIX: validate root logic columns — see planUpdate.
+  // Validate root logic columns — see planUpdate.
   for (const tree of logic) {
     const check = validateLogicTreeColumns(table, tree);
     if (!check.ok) return check;
@@ -358,13 +355,150 @@ function collectRootLogic(parsed: ParsedQueryParams): readonly LogicTree[] {
   return out;
 }
 
+interface NestedInsertPlanningResult {
+  readonly parentRawBody: string;
+  readonly parentPayloadKeys: ReadonlySet<string>;
+  readonly nestedInserts: readonly NestedInsertChild[];
+}
+
+function planNestedInserts(
+  input: PlanMutationInput,
+  table: Table,
+  payload: NormalizedJson,
+): Result<NestedInsertPlanningResult, CloudRestError> {
+  if (payload.isArrayBody) {
+    return ok({
+      parentRawBody: payload.rawBody,
+      parentPayloadKeys: payload.payloadKeys,
+      nestedInserts: [],
+    });
+  }
+
+  let body: unknown;
+  try {
+    body = JSON.parse(payload.rawBody);
+  } catch {
+    return err(parseErrors.invalidBody('Invalid JSON in request body'));
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return ok({
+      parentRawBody: payload.rawBody,
+      parentPayloadKeys: payload.payloadKeys,
+      nestedInserts: [],
+    });
+  }
+
+  const parentBody: Record<string, unknown> = { ...(body as Record<string, unknown>) };
+  const nestedInserts: NestedInsertChild[] = [];
+
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    if (findColumn(table, key)) continue;
+    const relationship = resolveRelationship(
+      { schema: table.schema, name: table.name },
+      key,
+      undefined,
+      input.schema.relationships,
+    );
+    if (relationship.kind !== 'found') continue;
+    const rel = relationship.relationship;
+    if (rel.cardinality.type !== 'O2M') continue;
+
+    const childTable = findTable(input.schema, rel.foreignTable);
+    if (!childTable) {
+      return err(
+        schemaErrors.tableNotFound(
+          rel.foreignTable.name,
+          rel.foreignTable.schema,
+          null,
+        ),
+      );
+    }
+
+    const rows = normalizeNestedRows(value);
+    if (rows === null) continue;
+    const [parentRefColumn, childFkColumn] = rel.cardinality.columns[0] ?? [];
+    if (parentRefColumn === undefined || childFkColumn === undefined) {
+      return err(
+        parseErrors.invalidBody(
+          `nested insert relationship "${key}" has no foreign-key columns`,
+        ),
+      );
+    }
+
+    const childRows = rows.map((row) => {
+      const out: Record<string, unknown> = { ...row };
+      delete out[childFkColumn];
+      return out;
+    });
+    const childKeys = new Set<string>();
+    for (const row of childRows) {
+      for (const childKey of Object.keys(row)) childKeys.add(childKey);
+    }
+
+    const childColumns: PlannedColumn[] = [];
+    for (const childKey of childKeys) {
+      const col = findColumn(childTable, childKey);
+      if (!col) {
+        return err(
+          schemaErrors.columnNotFound(
+            childKey,
+            `${childTable.schema}.${childTable.name}`,
+            fuzzyFind(childKey, [...childTable.columns.keys()]),
+          ),
+        );
+      }
+      if (col.generated) continue;
+      childColumns.push({
+        name: col.name,
+        type: col.type,
+        hasDefault: col.defaultValue !== null,
+        generated: col.generated,
+      });
+    }
+
+    nestedInserts.push({
+      relation: key,
+      target: rel.foreignTable,
+      parentRefColumn,
+      childFkColumn,
+      columns: childColumns,
+      rawBody: JSON.stringify(childRows),
+    });
+    delete parentBody[key];
+  }
+
+  return ok({
+    parentRawBody: nestedInserts.length > 0 ? JSON.stringify(parentBody) : payload.rawBody,
+    parentPayloadKeys:
+      nestedInserts.length > 0
+        ? new Set(Object.keys(parentBody))
+        : payload.payloadKeys,
+    nestedInserts,
+  });
+}
+
+function normalizeNestedRows(value: unknown): readonly Record<string, unknown>[] | null {
+  if (Array.isArray(value)) {
+    if (value.every(isPlainObject)) {
+      return value as readonly Record<string, unknown>[];
+    }
+    return null;
+  }
+  if (isPlainObject(value)) {
+    return [value as Record<string, unknown>];
+  }
+  return null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 /**
- * BUG FIX (#HH9): the old helper returned `true` for wildcard
- * filters, which left the planner accepting `*=eq.1` and leaving
- * the builder to reject it. Refuse at plan time so the error
- * originates from the schema layer where the user's request is
- * being interpreted. Return a discriminated result so the caller
- * can map the two failures distinctly.
+ * Refuse wildcard filters at plan time so the error originates from
+ * the schema layer where the user's request is being interpreted.
+ * Return a discriminated result so the caller can map the two
+ * failures distinctly.
  */
 type FilterValidationFailure =
   | { readonly kind: 'column-not-found' }

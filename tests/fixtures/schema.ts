@@ -18,6 +18,7 @@ export interface FixtureColumn {
   readonly type?: string;
   readonly nullable?: boolean;
   readonly isGeo?: boolean;
+  readonly geoKind?: string | null;
 }
 
 export interface FixtureTable {
@@ -46,6 +47,7 @@ export function makeTable(spec: FixtureTable): Table {
       enumValues: [],
       generated: false,
       isGeo: col.isGeo ?? false,
+      geoKind: col.geoKind ?? null,
     });
   }
   return {

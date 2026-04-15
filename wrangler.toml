@@ -9,12 +9,16 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+[placement]
+mode = "targeted"
+region = "aws:eu-central-1"
+
 # Hyperdrive binding — production uses a real Hyperdrive config;
 # `wrangler dev` honors `localConnectionString` and connects
 # directly. The id is a placeholder for local dev.
 [[hyperdrive]]
 binding = "HYPERDRIVE"
-id = "00000000000000000000000000000000"
+id = "ad9f7b18a8364ce180409b0cc8652a3f"
 localConnectionString = "postgres://postgres:testpass@localhost:5433/cloudrest_example"
 
 # Database config — maps to DatabaseConfig in config/schema.ts.
@@ -31,3 +35,27 @@ CORS_ALLOWED_ORIGINS = "*"
 # out of the box against `wrangler dev`.
 JWT_SECRET = "cloudrest-example-local-secret-32chars!"
 JWT_ROLE_CLAIM = ".role"
+
+# KV namespace for schema cache — DO writes, Workers read
+[[kv_namespaces]]
+binding = "SCHEMA_CACHE"
+id = "a567b83f56f342b5a7a245250b6714cf"
+
+# Durable Object — owns schema introspection + LISTEN/NOTIFY
+[durable_objects]
+bindings = [
+  { name = "SCHEMA_COORDINATOR", class_name = "SchemaCoordinator" }
+]
+
+# Migration: v1 created the old DO, v2 deleted it, v3 re-creates for the rewrite
+[[migrations]]
+tag = "v1"
+new_classes = ["SchemaCoordinator"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["SchemaCoordinator"]
+
+[[migrations]]
+tag = "v3"
+new_classes = ["SchemaCoordinator"]

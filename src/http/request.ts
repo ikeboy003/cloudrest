@@ -19,6 +19,7 @@ import { parseAcceptHeader, parseContentTypeHeader } from './media/parse';
 import type { MediaType } from './media/types';
 import { parsePrefer, type Preferences } from './preferences';
 import { ALL_ROWS, parseRange, type NonnegRange } from './range';
+import { applyPreset } from '@/presets/apply';
 
 // ----- Resource and action types ---------------------------------------
 
@@ -34,6 +35,7 @@ export interface QualifiedIdentifier {
  */
 export type Resource =
   | { readonly type: 'schema' }
+  | { readonly type: 'batch'; readonly transactional: boolean }
   | { readonly type: 'relation'; readonly name: string }
   | { readonly type: 'routine'; readonly name: string };
 
@@ -73,7 +75,8 @@ export type Action =
       readonly schema: string;
       readonly headersOnly: boolean;
     }
-  | { readonly type: 'schemaInfo'; readonly schema: string };
+  | { readonly type: 'schemaInfo'; readonly schema: string }
+  | { readonly type: 'batchDispatch'; readonly transactional: boolean };
 
 // ----- Parsed HTTP request shape ---------------------------------------
 
@@ -113,14 +116,14 @@ export function parseHttpRequest(
   config: AppConfig,
   request: Request,
 ): Result<ParsedHttpRequest, CloudRestError> {
-  const url = new URL(request.url);
+  // Apply query presets BEFORE anything else reads query params —
+  // `?view=feed` expands onto the URL and the original `view` key is
+  // removed. Subsequent parsing sees the expanded form.
+  const url = applyPreset(new URL(request.url), config.presets);
   const method = request.method;
-  // BUG FIX (#GG17): a malformed percent-encoded segment (`%gg`,
-  // `%Z1`, lone `%`) used to fall through `decodeURIComponent`'s
-  // `URIError` catch and return the raw, undecoded segment — so the
-  // router silently routed `/books/%gg` as a relation literally
-  // named `%gg`, hitting a schema error deep in the planner. Return
-  // PGRST100 at the parse boundary instead.
+  // A malformed percent-encoded segment (`%gg`, `%Z1`, lone `%`)
+  // returns PGRST100 at the parse boundary instead of falling through
+  // with the raw undecoded segment.
   const pathResult = decodePathSegments(url.pathname);
   if (!pathResult.ok) return pathResult;
   const pathSegments = pathResult.value;
@@ -192,8 +195,7 @@ function decodePathSegments(
     try {
       segments.push(decodeURIComponent(segment));
     } catch {
-      // BUG FIX (#GG17): malformed percent-encoding surfaces as a
-      // PGRST125 invalid-resource-path, not a silent pass-through.
+      // Malformed percent-encoding surfaces as PGRST125, not a silent pass-through.
       return err(parseErrors.invalidResourcePath());
     }
   }
@@ -204,6 +206,16 @@ function resolveResource(
   segments: readonly string[],
 ): Result<Resource, CloudRestError> {
   if (segments.length === 0) return ok({ type: 'schema' });
+  if (segments.length === 1 && segments[0] === '_batch') {
+    return ok({ type: 'batch', transactional: false });
+  }
+  if (
+    segments.length === 2 &&
+    segments[0] === '_batch' &&
+    segments[1] === 'transaction'
+  ) {
+    return ok({ type: 'batch', transactional: true });
+  }
   if (segments.length === 1) {
     const name = segments[0]!;
     return ok({ type: 'relation', name });
@@ -260,6 +272,16 @@ function resolveAction(
           return ok({ type: 'schemaRead', schema, headersOnly: true });
         case 'OPTIONS':
           return ok({ type: 'schemaInfo', schema });
+        default:
+          return err(parseErrors.unsupportedMethod(method));
+      }
+    case 'batch':
+      switch (method) {
+        case 'POST':
+          return ok({
+            type: 'batchDispatch',
+            transactional: resource.transactional,
+          });
         default:
           return err(parseErrors.unsupportedMethod(method));
       }

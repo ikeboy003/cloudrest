@@ -1,6 +1,6 @@
 // `SET LOCAL statement_timeout` rendering.
 //
-// INVARIANT (CONSTITUTION §4.1, critique #65): every transaction MUST
+// INVARIANT: every transaction MUST
 // set a statement timeout. The value comes from
 // `config.database.statementTimeoutMs`. The executor's transaction
 // runner calls this for every request — there is no "opt out" path.

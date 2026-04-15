@@ -39,14 +39,8 @@ export function parseFilter(
 
   const { embedPath, fieldToken } = splitKeyIntoEmbedAndField(key);
 
-  // BUG FIX (#24): reject empty embed segments. The old `.split('.').filter(len > 0)`
-  // approach silently collapsed `.id=eq.1` into a root filter on `id`
-  // and `a..b=eq.1` into an embed path of `['a']`. Both are malformed.
-  //
-  // BUG FIX (#AA11): embed path segments must also be plain SQL
-  // identifiers. The old check only caught empty segments, so
-  // `bad-name.id=eq.1` and `bad;name.id=eq.1` parsed as valid embed
-  // filters on a garbage relation name.
+  // Reject empty embed segments (`.id=eq.1` or `a..b=eq.1` are
+  // malformed). Embed path segments must also be plain SQL identifiers.
   for (const segment of embedPath) {
     if (segment === '') {
       return err(
