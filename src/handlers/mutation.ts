@@ -1,13 +1,7 @@
 // `handleMutation` — orchestration for POST/PUT/PATCH/DELETE /{relation}.
 //
-// INVARIANT (CONSTITUTION §1.8): like `handleRead`, this is a thin
-// sequential pipeline. Parse query → parse body → plan → build →
-// execute → build response → finalize.
-//
-// Stage 9 scope: happy path for single-row and array INSERT, UPDATE,
-// DELETE, and single-row UPSERT. Nested insert and graph-return
-// forms are deferred — they wire in on top of this module without
-// restructuring it.
+// Like `handleRead`, this is a thin sequential pipeline. Parse query →
+// parse body → plan → build → execute → build response → finalize.
 
 import { err, type Result } from '@/core/result';
 import { mediaErrors, parseErrors, type CloudRestError } from '@/core/errors';
@@ -55,13 +49,11 @@ export async function handleMutation(
   const parsed = parseQueryParams(httpRequest.url.searchParams);
   if (!parsed.ok) return parsed;
 
-  // 1b. BUG FIX: PUT with `?limit=` / `?offset=` must be refused at
-  //     PGRST114. The range-header version is caught by `parseRange`,
-  //     but at request-parse time the query-param shape is not yet
-  //     known — `parseHttpRequest` calls `parseRange` with
-  //     `limitOverride: ALL_ROWS`, so the check there only covers
-  //     `Range:` headers. Apply the same rejection here, once we
-  //     have the parsed query params.
+  // 1b. PUT with `?limit=` / `?offset=` must be refused at PGRST114.
+  //     The range-header version is caught by `parseRange`, but at
+  //     request-parse time the query-param shape is not yet known.
+  //     Apply the same rejection here, once we have the parsed query
+  //     params.
   if (action.mutation === 'singleUpsert') {
     const rootRange = parsed.value.ranges.get('limit');
     if (
@@ -105,16 +97,14 @@ export async function handleMutation(
   const built = buildMutationQuery(plan.value);
   if (!built.ok) return built;
 
-  // 6. Execute. Mutations honor `Prefer: tx=rollback` via Stage 7's
+  // 6. Execute. Mutations honor `Prefer: tx=rollback` via the
   //    `rollbackPreferred` option, and `Prefer: max-affected=N` via
   //    the `maxAffected` option which the executor enforces by
   //    rolling back and surfacing PGRST124 when exceeded.
   //
-  //    BUG FIX: same as the read handler — the mutation path now
-  //    threads the authenticated role, per-request claim GUCs, and
-  //    the `DB_PRE_REQUEST` hook through `runQuery`. Without this
-  //    RLS and per-claim policy checks were running against the
-  //    connection role rather than the JWT role.
+  //    The mutation path threads the authenticated role, per-request
+  //    claim GUCs, and the `DB_PRE_REQUEST` hook through `runQuery`
+  //    so RLS and per-claim policy checks run against the JWT role.
   const prelude = buildRequestPrelude({
     auth: context.auth,
     config: context.config,

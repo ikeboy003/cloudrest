@@ -1,14 +1,14 @@
 // Read query builder — `ReadPlan → BuiltQuery`.
 //
-// INVARIANT: Every feature (filters, logic, order, range, search,
-// vector, distinct, having, count strategy, media-sensitive row cap)
-// is a field of ReadPlan and renders as part of this single function.
-// No post-hoc `sql.replace()` surgery. CONSTITUTION §1.1, §1.6.
+// Every feature (filters, logic, order, range, search, vector,
+// distinct, having, count strategy, media-sensitive row cap) is a field
+// of ReadPlan and renders as part of this single function. No post-hoc
+// `sql.replace()` surgery.
 //
-// INVARIANT: Every user-controlled value reaches SQL through
-// `SqlBuilder.addParam`. The only inlined values are integers (LIMIT /
-// OFFSET), operator mnemonics, cast types from the allowlist, and
-// identifiers escaped via `escapeIdent`. CONSTITUTION §1.3.
+// Every user-controlled value reaches SQL through `SqlBuilder.addParam`.
+// The only inlined values are integers (LIMIT / OFFSET), operator
+// mnemonics, cast types from the allowlist, and identifiers escaped via
+// `escapeIdent`.
 //
 // Shape of the rendered query:
 //
@@ -70,15 +70,26 @@ export function buildReadQuery(
   // from search.includeRank, vector (distance), and every root embed
   // (if any). Each embed contributes a column expression (or many, for
   // aggregate embeds) plus a LATERAL-join clause spliced into FROM.
+  //
+  // `geoWrap` tells the projection renderer to wrap `geography`
+  // columns in `ST_AsGeoJSON(col)::jsonb`. Only fires when the
+  // planner found spatial columns on the root table. Geometry
+  // columns are left alone because PostGIS's row_to_json cast
+  // already serializes them as GeoJSON.
+  const geoWrap = plan.geoKinds
+    ? (name: string) =>
+        plan.geoKinds!.get(name) === 'geography' ? ('geography' as const) : null
+    : undefined;
   const projectionResult = renderSelectProjectionAndGrouping(
     plan.target,
     plan.select,
     builder,
+    geoWrap,
   );
   if (!projectionResult.ok) return projectionResult;
   const projection = projectionResult.value;
 
-  // BUG FIX (#DD2): when the user wrote `select=authors(name)` the
+  // When the user wrote `select=authors(name)` the
   // planner strips the embed into `plan.embeds` and leaves
   // `plan.select = []`. `renderSelectProjectionAndGrouping` then
   // falls back to `"schema"."table".*`, so the final projection ends
@@ -93,7 +104,7 @@ export function buildReadQuery(
     ? []
     : [projection.projectionSql];
 
-  // BUG FIX (#BB13 / #BB14): an aggregate select (`select=count()` or
+  // An aggregate select (`select=count()` or
   // any mix with aggregate functions) cannot be combined with vector
   // distance or search rank. Both of those synthesize a non-aggregate
   // projection column, which would require the user's non-aggregate
@@ -117,7 +128,7 @@ export function buildReadQuery(
     );
   }
 
-  // BUG FIX (#FF1): the same reasoning applies to non-aggregate
+  // The same reasoning applies to non-aggregate
   // embeds. A to-one embed emits `row_to_json(pgrst_1.*)::jsonb`
   // and a to-many emits `COALESCE("pgrst_1"."pgrst_1", '[]')` —
   // both are non-aggregate columns that would need to appear in
@@ -137,7 +148,7 @@ export function buildReadQuery(
     }
   }
 
-  // BUG FIX (#FF2): in an aggregate query, every ORDER BY term and
+  // In an aggregate query, every ORDER BY term and
   // every DISTINCT ON column must reference a grouped column.
   // Without this guard, `select=count()&order=title.asc` would
   // render `ORDER BY title` against an aggregate projection — a
@@ -233,12 +244,12 @@ export function buildReadQuery(
 
   // ----- GROUP BY + HAVING --------------------------------------------
   //
-  // BUG FIX (#BB6): GROUP BY reuses the same rendered field
+  // GROUP BY reuses the same rendered field
   // expressions from the projection pass so JSON-path keys are not
   // rebound as fresh parameters.
   const groupBySql = renderGroupByFromProjection(projection);
 
-  // BUG FIX (#BB8): a HAVING clause only makes sense in an aggregate
+  // A HAVING clause only makes sense in an aggregate
   // query. `having=count().gt.5` on a default `select=*` would emit
   // `SELECT t.* FROM t HAVING COUNT(*) > $1` — invalid SQL. Require
   // the projection to contain at least one aggregate before we
@@ -261,7 +272,7 @@ export function buildReadQuery(
   // Vector distance becomes either the primary order (when no user
   // order is supplied) or a tie-breaker at the end.
   //
-  // BUG FIX (#CC2): pass the embed alias map so that related ORDER
+  // Pass the embed alias map so that related ORDER
   // BY terms (`?order=author(name).asc`) resolve to the LATERAL
   // alias (`"pgrst_1"."name"`) instead of a non-existent
   // `"public"."author"."name"` reference.
@@ -274,7 +285,7 @@ export function buildReadQuery(
   if (!orderSqlResult.ok) return orderSqlResult;
   let orderSql = orderSqlResult.value;
 
-  // BUG FIX (#DD3): `DISTINCT ON (a, b, ...)` requires the ORDER BY
+  // `DISTINCT ON (a, b, ...)` requires the ORDER BY
   // to START with the same expressions, in the same order. The
   // previous guard only covered the no-order + vector case. Tighten
   // it to cover ANY user order that does not begin with the distinct
@@ -316,7 +327,7 @@ export function buildReadQuery(
   }
 
   if (plan.vector) {
-    // BUG FIX (#BB15 / #DD3): when DISTINCT ON is in play, the
+    // When DISTINCT ON is in play, the
     // DISTINCT ON + order-prefix validator above has already
     // synthesized or verified an ORDER BY that starts with the
     // distinct columns. The vector distance is safe to append as
@@ -347,7 +358,7 @@ export function buildReadQuery(
   ]);
 
   // ----- Outer wrapper with count, body, optional GUCs ----------------
-  // BUG FIX (#BB9, #BB10, #DD1): exact count must reflect
+  // Exact count must reflect
   // grouping / HAVING / DISTINCT and any row-filtering joins from
   // `!inner` embeds. Pass the shape of the inner query so the
   // count CTE can mirror it when needed.
@@ -435,27 +446,16 @@ interface CountRenderInput {
  * Returns both the optional `WITH pgrst_source_count` CTE and the
  * expression to use in the outer SELECT for `total_result_set`.
  *
- * BUG FIX (#BB9): the old exact-count CTE was `SELECT 1 FROM t WHERE
- * ...` — it ignored GROUP BY and HAVING entirely. For a grouped
- * query (`select=category,count()&having=count().gt.5`) it would
- * count every filtered row in the base table instead of the number
- * of groups returned by the inner subquery.
+ * The count CTE must reflect GROUP BY, HAVING, and DISTINCT shapes
+ * to produce correct totals. The WHERE/HAVING/projection fragments
+ * were rendered with the outer builder, so their `$N` params are
+ * already allocated — we reference the already-rendered SQL instead
+ * of re-rendering.
  *
- * BUG FIX (#BB10): the same CTE also ignored DISTINCT / DISTINCT
- * ON, so an exact count on a distinct query counted every row
- * instead of every distinct group.
- *
- * The rewrite detects the shapes that need a wrapped count and
- * emits the correct CTE in each case. Note the WHERE/HAVING/
- * projection fragments were rendered with the outer builder, so
- * their `$N` params are already allocated — we reference the
- * already-rendered SQL instead of re-rendering.
- *
- * BUG FIX (#BB11, #BB12): `planned` and `estimated` strategies still
- * lean on `pg_class.reltuples`, which is a whole-table estimate and
- * does not reflect filters. This is inherent to the strategies
- * (PostgREST parity) and is called out in the comments below so the
- * next reader is not surprised.
+ * Note: `planned` and `estimated` strategies lean on
+ * `pg_class.reltuples`, which is a whole-table estimate and does not
+ * reflect filters. This is inherent to the strategies (PostgREST
+ * parity).
  */
 function renderCount(
   plan: ReadPlan,
@@ -486,7 +486,7 @@ function renderCount(
   // children. In each of those cases the count CTE must wrap a
   // subquery that mirrors the inner subquery's shape.
   //
-  // BUG FIX (#DD1): the old check ignored inner-join embeds. For
+  // Inner-join embeds also change cardinality. For
   // `select=id,authors!inner(name)&Prefer: count=exact` the body
   // query ran against `books INNER JOIN LATERAL authors ON ...`
   // while the count CTE dropped straight back to `SELECT 1 FROM
@@ -528,7 +528,7 @@ function renderCount(
   }
 
   if (plan.count === 'planned') {
-    // NOTE (#BB11): `planned` is a whole-table estimate via
+    // `planned` is a whole-table estimate via
     // `pg_class.reltuples`. It deliberately does NOT reflect filters,
     // grouping, or distinct — this matches PostgREST's behavior.
     // Callers that need a filtered count should use `exact` or
@@ -541,7 +541,7 @@ function renderCount(
 
   // estimated — exact up to a ceiling, planned after that.
   //
-  // NOTE (#BB12): above the ceiling the fallback is whole-table
+  // Above the ceiling the fallback is whole-table
   // `reltuples`, not a filtered plan estimate. A tighter estimate
   // would require `EXPLAIN (FORMAT JSON)`-in-a-CTE machinery that
   // is out of scope here. Documenting the limitation so the next
@@ -574,7 +574,7 @@ function renderCount(
 
 // ----- Search rendering -------------------------------------------------
 //
-// KNOWN INEFFICIENCY (#BB18): both `renderSearchRank` and the WHERE
+// Known inefficiency: both `renderSearchRank` and the WHERE
 // clause build their own `to_tsvector(...)` / `ts_rank(...)`
 // expressions, and vector distance is computed in projection AND
 // again in ORDER BY, each time going through `builder.addParam`. The
@@ -585,8 +585,7 @@ function renderCount(
 // DISTINCT/GROUP BY (see the hasAggregates guards in buildReadQuery).
 //
 // A future pass should hoist these expressions into a CTE column so
-// both projection and ordering reference the same `$N`. Left as a
-// documented TODO rather than silently changing the query shape.
+// both projection and ordering reference the same `$N`.
 //
 
 /**

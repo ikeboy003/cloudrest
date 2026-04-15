@@ -1,12 +1,11 @@
 // Executor-facing types — the single contract between handlers and the
 // database layer.
 //
-// INVARIANT (CONSTITUTION §1.2): `QueryResult` and `TransactionOutcome`
-// are the ONLY shapes the executor hands back to handlers. No thrown
-// sentinels escape the executor boundary; if the postgres.js driver
-// needs `throw` internally to roll a transaction back, the throw is
-// caught inside `executor/transaction.ts` and translated to the outcome
-// union here.
+// `QueryResult` and `TransactionOutcome` are the ONLY shapes the
+// executor hands back to handlers. No thrown sentinels escape the
+// executor boundary; if the postgres.js driver needs `throw` internally
+// to roll a transaction back, the throw is caught inside
+// `executor/transaction.ts` and translated to the outcome union here.
 //
 // This file is intentionally tiny and has no runtime imports so it can
 // be included from pure type consumers (handlers, tests) without
@@ -38,9 +37,8 @@ export interface QueryResult {
  * The explicit outcome of a transaction. Handlers `switch` on `kind`
  * and never need to know whether the driver used `throw` to unwind.
  *
- * COMPAT note: the old code surfaced rollback-preferred and
- * max-affected violations by throwing sentinel objects. Critique #4
- * called that out; Stage 7 eliminates it from the public signature.
+ * Rollback-preferred and max-affected violations are expressed as
+ * union branches rather than thrown sentinel objects.
  */
 export type TransactionOutcome =
   /** Transaction committed; rows and parsed GUCs are in `result`. */
@@ -72,17 +70,15 @@ export type TransactionOutcome =
  */
 export interface RunQueryOptions {
   /**
-   * Pre-built `SET LOCAL ROLE ...` statement. Stage 7 does not parse
-   * this; stage 11 will populate it from `auth.resolvedRole`.
+   * Pre-built `SET LOCAL ROLE ...` statement.
    */
   readonly roleSql?: string | null;
   /**
-   * Pre-built `set_config('request.jwt.claim.*', ...)` block. Stage 11.
+   * Pre-built `set_config('request.jwt.claim.*', ...)` block.
    *
-   * May be either a plain SQL string (legacy; Stage 11 populates) or
-   * a `BuiltQuery`-shaped `{ sql, params }` pair when values need to
-   * be bound (app settings, claim values with user-controlled
-   * content).
+   * May be either a plain SQL string or a `BuiltQuery`-shaped
+   * `{ sql, params }` pair when values need to be bound (app settings,
+   * claim values with user-controlled content).
    */
   readonly preQuerySql?:
     | string

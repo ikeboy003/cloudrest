@@ -1,7 +1,7 @@
 // RPC planner — turns (routine, payload/rpcParams, preferences) into
 // a typed `RpcPlan`.
 //
-// INVARIANT (CONSTITUTION §1.5): routine existence and parameter
+// INVARIANT: routine existence and parameter
 // validity are checked HERE, not in the builder. A PGRST203 (no
 // such routine) or PGRST202-style argument mismatch surfaces at
 // plan time with a meaningful error.
@@ -105,14 +105,13 @@ function resolveRoutine(
       ),
     );
   }
-  // Stage 10 accepts exactly one candidate. Ambiguity (multiple
-  // overloads) is a Stage 10.1 concern — PostgREST uses the named-
-  // argument set to disambiguate, which requires a per-argument
-  // type-compatibility check we defer.
+  // Accepts exactly one candidate. PostgREST uses the named-argument
+  // set to disambiguate, which requires a per-argument type-
+  // compatibility check we defer.
   if (candidates.length > 1) {
     return err(
       schemaErrors.ambiguousRpc(
-        `multiple overloads for ${target.schema}.${target.name}; stage 10 accepts a single definition only`,
+        `multiple overloads for ${target.schema}.${target.name}; accepts a single definition only`,
       ),
     );
   }
@@ -206,8 +205,8 @@ function decideCallShape(
   // ----- GET /rpc/fn?arg=value ----------------------------------------
   if (payload === null) {
     // The parser puts "non-filter, non-reserved" key=value pairs into
-    // `rpcParams`. Stage 4 already split filters out; rpcParams is
-    // the remaining set.
+    // `rpcParams`. Filters are already split out; rpcParams is the
+    // remaining set.
     const asObject: Record<string, unknown> = {};
     for (const [k, v] of parsed.rpcParams) asObject[k] = v;
     if (Object.keys(asObject).length === 0) {

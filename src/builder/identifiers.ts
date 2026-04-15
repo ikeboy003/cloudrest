@@ -1,7 +1,7 @@
 // Identifier and literal rendering primitives.
 //
 // INVARIANT: Every SQL identifier and every SQL literal the rewrite
-// emits MUST go through this file. CONSTITUTION §1.4. No other file
+// emits MUST go through this file. No other file
 // may implement its own `escapeIdent`, `pgFmtLit`, or equivalent.
 //
 // SECURITY: `pgFmtLit` intentionally handles the backslash-vs-E-prefix
@@ -15,7 +15,7 @@
 // SECURITY: `pgFmtLit` is ONLY for values the rewrite knows came from
 // the database catalog (table types, routine names) or from code-level
 // constants. User-controlled values MUST go through `SqlBuilder.addParam`
-// (see builder/sql.ts). CONSTITUTION §1.3.
+// (see builder/sql.ts).
 
 import type { QualifiedIdentifier } from '@/http/request';
 

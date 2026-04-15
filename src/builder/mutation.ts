@@ -1,17 +1,14 @@
-// Mutation SQL builder — ONE renderer for INSERT / UPDATE / DELETE /
-// UPSERT (READABILITY_REVIEW §8, critique #8).
+// Mutation SQL builder — one renderer for INSERT / UPDATE / DELETE /
+// UPSERT.
 //
-// INVARIANT (CONSTITUTION §1.1, §1.6): a `MutationPlan.wrap` flag
-// selects between the wrapped-result form and the CTE-only form.
-// The old code had four parallel `buildXQuery` / `buildXCte` pairs;
-// this module replaces them.
+// A `MutationPlan.wrap` flag selects between the wrapped-result form
+// and the CTE-only form.
 //
-// INVARIANT (critique #76): `RETURNING` is emitted as
-// `RETURNING "schema"."table".*` — schema-qualified. The old code's
-// bare `RETURNING *` in UPDATE joined against `pgrst_body` produced
-// duplicate column names in the result set.
+// `RETURNING` is emitted as `RETURNING "schema"."table".*` —
+// schema-qualified. A bare `RETURNING *` in UPDATE joined against
+// `pgrst_body` would produce duplicate column names in the result set.
 //
-// RUNTIME (CONSTITUTION §1.3 exception): the JSON body for
+// RUNTIME: the JSON body for
 // `INSERT` / `UPDATE` is inlined via `pgFmtLit(body)::jsonb`, NOT
 // bound via `SqlBuilder.addParam`. `postgres.js` sends every bind
 // parameter as text, and `json_to_record($1::json)` (or
@@ -191,10 +188,10 @@ function buildDelete(plan: DeletePlan): Result<BuiltQuery, CloudRestError> {
 // ----- Shared helpers --------------------------------------------------
 
 /**
- * BUG FIX (#76): `RETURNING *` on an UPDATE/INSERT that joins against
- * a JSON source relation duplicates every column the client sent —
- * once from the table, once from `pgrst_body` / `_`. The schema-
- * qualified form is the minimal fix and is consistent with PostgREST.
+ * `RETURNING *` on an UPDATE/INSERT that joins against a JSON source
+ * relation duplicates every column the client sent — once from the
+ * table, once from `pgrst_body` / `_`. The schema-qualified form
+ * avoids the duplication and is consistent with PostgREST.
  */
 function renderReturning(plan: MutationPlan): string {
   if (
@@ -228,7 +225,7 @@ function renderWhereParts(
 
 /**
  * Wrap the mutation CTE with the standard result shape, unless the
- * plan asked for the CTE-only form (used by Stage 9+ graph-return).
+ * plan asked for the CTE-only form (used by graph-return).
  */
 function finalizeBuild(
   plan: MutationPlan,

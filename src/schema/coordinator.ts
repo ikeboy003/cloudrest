@@ -50,7 +50,8 @@ export class SchemaCoordinator implements DurableObject {
   private cache: SchemaCache | null = null;
   private loadingPromise: Promise<void> | null = null;
   private lastLoadError: string | null = null;
-  private listener: ReturnType<typeof postgres> | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private listener: any = null;
 
   constructor(state: DurableObjectState, env: CoordinatorEnv) {
     this.state = state;
@@ -127,7 +128,8 @@ export class SchemaCoordinator implements DurableObject {
 
     const schemasArray = `{${schemas.map((s) => `"${s}"`).join(',')}}`;
 
-    let sql: ReturnType<typeof postgres> | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let sql: any = null;
     try {
       sql = postgres(this.env.HYPERDRIVE.connectionString, {
         prepare: false,
@@ -187,7 +189,7 @@ export class SchemaCoordinator implements DurableObject {
     if (this.listener) return;
 
     try {
-      const sql = postgres(this.env.HYPERDRIVE.connectionString, {
+      const sql: any = postgres(this.env.HYPERDRIVE.connectionString, {
         prepare: false,
         max: 1,
         idle_timeout: 0, // keep alive
@@ -197,7 +199,7 @@ export class SchemaCoordinator implements DurableObject {
       sql.listen('cloudrest_schema_changed', async () => {
         console.log('Received NOTIFY cloudrest_schema_changed — reloading schema');
         await this.doLoadSchema();
-      }).catch((err) => {
+      }).catch((err: unknown) => {
         console.error('LISTEN failed:', err);
         this.listener = null;
       });

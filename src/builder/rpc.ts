@@ -1,6 +1,6 @@
 // RPC SQL builder — single renderer for `SELECT * FROM fn(...)`.
 //
-// INVARIANT (CONSTITUTION §1.1 + §1.3): every argument value reaches
+// INVARIANT: every argument value reaches
 // SQL via `SqlBuilder.addParam`. Type casts are inlined (from the
 // routine's declared parameter type), but values themselves are
 // never inlined.

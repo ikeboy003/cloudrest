@@ -1,6 +1,6 @@
 // Server and connection errors — PGRST000 family plus SQLSTATE mapping.
 //
-// COMPAT: PostgREST uses PGRST000/001/002/003 for connection and schema
+// PostgREST uses PGRST000/001/002/003 for connection and schema
 // cache errors. Status codes match (503 for connection, 503 for schema
 // cache, 504 for acquisition timeout).
 //
@@ -80,7 +80,7 @@ export const serverErrors = {
 /**
  * SQLSTATE → HTTP status mapping.
  *
- * COMPAT: These codes follow PostgREST's mapping as closely as possible.
+ * These codes follow PostgREST's mapping as closely as possible.
  * Class prefixes (23, 42, 08, 57, P0) are fallbacks for unlisted codes.
  */
 export function sqlStateToHttpStatus(state: string): number {

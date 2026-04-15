@@ -47,9 +47,7 @@ export interface ParsedQueryParams {
    * `?cursor=...` opaque cursor token. Verification and decoding live
    * in the executor (HMAC). The parser just threads the value through.
    *
-   * BUG FIX (#Z): the old dispatcher marked `cursor` as reserved and
-   * silently dropped it. Planner/executor can now see the value via
-   * this field once they are ready to consume it.
+   * Opaque cursor token threaded through for the executor (HMAC).
    */
   readonly cursor: string | null;
   /**
@@ -57,8 +55,8 @@ export interface ParsedQueryParams {
    * The parser threads the raw values through; the planner validates
    * the column against the schema and chooses the distance function.
    *
-   * BUG FIX (#Z): the old dispatcher marked these reserved and
-   * silently dropped them.
+   * Parser threads raw values through; the planner validates the
+   * column against the schema and chooses the distance function.
    */
   readonly vector: {
     readonly value: string;
@@ -70,10 +68,7 @@ export interface ParsedQueryParams {
    * full-text-search inputs. Parser owns extraction; the planner
    * owns column validation.
    *
-   * BUG FIX (#EE5): search keys used to only reach the planner via
-   * a side-channel `PlanReadInput.search` that the handler had to
-   * pluck manually. The parser-to-planner contract now threads
-   * them through `ParsedQueryParams` for consistency with vector.
+   * Parser owns extraction; the planner owns column validation.
    */
   readonly search: {
     readonly term: string;

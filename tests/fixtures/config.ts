@@ -44,6 +44,8 @@ export function makeTestConfig(
     },
     limits: {
       maxBodyBytes: 1_048_576,
+      maxBatchBodyBytes: 10_485_760,
+      maxBatchOps: 100,
       maxEmbedDepth: 8,
       rateLimitRpm: 0,
       maxQueryCost: 0,
@@ -57,6 +59,12 @@ export function makeTestConfig(
       serverTimingEnabled: false,
       serverTraceHeader: null,
       clientErrorVerbosity: 'verbose',
+    },
+    presets: new Map(),
+    realtime: {
+      enabled: false,
+      pollIntervalMs: 1000,
+      maxBatchSize: 100,
     },
   };
   return { ...base, ...overrides };

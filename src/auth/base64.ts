@@ -1,13 +1,8 @@
 // Base64 + base64url decode helpers for JWT handling.
 //
-// INVARIANT: The rewrite carries TWO decoders because JWTs use
-// base64url (the header/payload/signature) while raw HMAC secrets
-// may use either form — PostgREST's `JWT_SECRET_IS_BASE64` uses a
-// lenient decoder that accepts padded, unpadded, standard, and
-// URL-safe alphabets.
-//
-// Stage 8a: file move only. Behavior-preserving port of the helpers
-// at the bottom of cloudrest-public/src/auth.ts.
+// Two decoders: JWTs use base64url (header/payload/signature) while
+// HMAC secrets via `JWT_SECRET_IS_BASE64` use a lenient decoder that
+// accepts padded, unpadded, standard, and URL-safe alphabets.
 
 /**
  * Decode a base64url string to its binary form as a JS string.

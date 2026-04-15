@@ -1,13 +1,8 @@
 // Schema relationships — the FK graph used by embed planning.
 //
-// INVARIANT (CONSTITUTION §1.5): the planner consumes typed relationship
-// records; no string surgery, no resolution-by-regex. Ambiguity is a
-// first-class result of `resolveRelationship`, not an exception.
-//
-// The shape is intentionally parallel to the old cloudrest-public/src/
-// schema/relationship.ts so that the introspector in a later stage can
-// populate it with minimal translation. The field names drop the
-// Haskell-record prefixes (`relTable` → `table`).
+// The planner consumes typed relationship records; no string surgery, no
+// resolution-by-regex. Ambiguity is a first-class result of
+// `resolveRelationship`, not an exception.
 
 import type { QualifiedIdentifier } from '@/http/request';
 
@@ -83,7 +78,7 @@ export type RelationshipResolution =
  * Look up a relationship from `parentTable` to an embed named `embedName`,
  * optionally disambiguated by `hint`.
  *
- * Matching rules (ported from old code):
+ * Matching rules:
  * - By foreign table name (primary);
  * - By M2M junction-table name;
  * - By FK constraint name.
@@ -125,12 +120,8 @@ export function resolveRelationship(
 
   if (matches.length === 0) return { kind: 'not-found' };
 
-  // BUG FIX (#HH4): the old shortcut returned the sole match without
-  // looking at `hint`, so `select=authors!wrong_hint(...)` silently
-  // accepted any hint string when there was exactly one matching
-  // relationship. A wrong hint should ALWAYS fail, whether or not
-  // the match set is ambiguous — a typo in the constraint name
-  // should never be swept under the rug.
+  // A wrong hint should always fail, whether or not the match set is
+  // ambiguous — a typo in the constraint name should never be ignored.
   const hintMatches = (r: Relationship): boolean => {
     if (hint === undefined) return true;
     const card = r.cardinality;

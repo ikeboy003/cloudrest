@@ -1,0 +1,11 @@
+# Edge cache worker — runs at the user's nearest PoP.
+# No placement constraint — Cloudflare picks the closest PoP.
+
+name = "cloudrest-edge"
+main = "index.ts"
+compatibility_date = "2024-09-23"
+
+# No placement — runs at nearest PoP to the user
+[vars]
+DB_WORKER_URL = "https://cloudrest.nathanael-aninweze.workers.dev"
+CACHE_TTL = "60"

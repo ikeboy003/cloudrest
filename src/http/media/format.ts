@@ -6,7 +6,7 @@
 //   2. Add formatter below
 //   3. Add a unit test
 //
-// COMPAT: CSV, singular, stripNulls, and GeoJSON semantics match
+// CSV, singular, stripNulls, and GeoJSON semantics match
 // PostgREST. The CSV column set is the union of all row keys (not just
 // the first row's keys), so sparse objects round-trip.
 
@@ -19,11 +19,11 @@ import type { MediaTypeId } from './types';
  * error so the caller can map them to PGRST116 (406) instead of
  * silently returning the first row.
  *
- * BUG FIX (#GG9): the old signature was `string` and `singularBody`
- * just unwrapped `parsed[0] ?? null`. A query that matched 5 rows
- * with `Accept: application/vnd.pgrst.object+json` would return
- * whichever row happened to be first — potentially leaking data the
- * user didn't ask for and hiding the "more than one" condition.
+ * The old signature was `string` and `singularBody` just unwrapped
+ * `parsed[0] ?? null`. A query that matched 5 rows with
+ * `Accept: application/vnd.pgrst.object+json` would return whichever
+ * row happened to be first — potentially leaking data the user didn't
+ * ask for and hiding the "more than one" condition.
  */
 export type FormatBodyResult =
   | { readonly kind: 'ok'; readonly body: string }
@@ -81,8 +81,7 @@ function singularBody(raw: string): FormatBodyResult {
   if (!Array.isArray(parsed)) {
     return { kind: 'ok', body: raw };
   }
-  // BUG FIX (#GG9): enforce the cardinality contract. 0 or 2+ rows
-  // is PGRST116 at the caller.
+  // Enforce the cardinality contract. 0 or 2+ rows is PGRST116 at the caller.
   if (parsed.length !== 1) {
     return { kind: 'singular-cardinality', rowCount: parsed.length };
   }
@@ -95,10 +94,10 @@ function singularBody(raw: string): FormatBodyResult {
  * Convert a JSON array of rows into newline-delimited JSON (one row
  * per line, no trailing newline on the last row).
  *
- * BUG FIX (#GG10): the old formatter passed the raw JSON array
- * through unchanged, so `application/x-ndjson` responses were
- * syntactically JSON arrays — wrong content type for the payload
- * and not parseable by ndjson-aware clients.
+ * Converts the raw JSON array to newline-delimited rows. Without this,
+ * `application/x-ndjson` responses would be syntactically JSON arrays
+ * — wrong content type for the payload and not parseable by
+ * ndjson-aware clients.
  */
 function jsonArrayToNdjson(raw: string): string {
   let parsed: unknown;

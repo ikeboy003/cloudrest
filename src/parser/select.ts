@@ -9,10 +9,10 @@
 //   innerSelect  := ( 'limit=' N | 'offset=' N | 'order=' X | field )*
 //   field        := (alias ':')? column ('::' cast)? ('.' aggregate '()' )?
 //
-// COMPAT (CONSTITUTION §12.5): The canonical aggregate form is
-// `aggregate(column)`. The extension form `column.aggregate()` is
-// accepted and parsed to the same AST node. Aggregate names are a closed
-// allowlist; anything else inside parens is an embed.
+// The canonical aggregate form is `aggregate(column)`. The extension
+// form `column.aggregate()` is accepted and parsed to the same AST
+// node. Aggregate names are a closed allowlist; anything else inside
+// parens is an embed.
 //
 // REGRESSION: critique #68 — `select=book_id,avg(rating)` must parse as
 // a field list containing an aggregate, NOT an embed of a table named
@@ -115,10 +115,7 @@ export function parseSelect(raw: string): Result<readonly SelectItem[], CloudRes
           hint = undefined;
         }
 
-        // BUG FIX (#AA13): `author!inner!left` is nonsense — `inner`
-        // is a join type, not an FK hint. If the first `!`-segment is
-        // a join-type word and a second `!`-segment is also present,
-        // that is a double join-type declaration and an error.
+        // `author!inner!left` is nonsense — double join-type declaration.
         if (joinType && (hint === 'inner' || hint === 'left')) {
           return err(
             parseErrors.queryParam(
@@ -136,10 +133,7 @@ export function parseSelect(raw: string): Result<readonly SelectItem[], CloudRes
         if (innerContent === '') {
           innerSelect = [];
         } else if (innerContent !== '*') {
-          // BUG FIX (#Q): the outer parseSelect rejects leading/
-          // trailing commas at the top level, but the embed-inner
-          // branch used to split silently. `select=author(id,)` would
-          // parse as `author(id)` instead of an error.
+          // Reject leading/trailing commas in embed-inner select too.
           if (innerContent.startsWith(',') || innerContent.endsWith(',')) {
             return err(
               parseErrors.queryParam(
@@ -165,8 +159,7 @@ export function parseSelect(raw: string): Result<readonly SelectItem[], CloudRes
               );
             }
             if (trimmedInner.startsWith('limit=')) {
-              // BUG FIX (#AA15): duplicate inline `limit=` silently
-              // last-wins used to be surprising. Pin deliberately.
+              // Duplicate inline `limit=` is an error.
               if (embedLimit !== undefined) {
                 return err(
                   parseErrors.queryParam(
@@ -186,7 +179,7 @@ export function parseSelect(raw: string): Result<readonly SelectItem[], CloudRes
               }
               embedLimit = n;
             } else if (trimmedInner.startsWith('offset=')) {
-              // BUG FIX (#AA15): same duplicate check for `offset=`.
+              // Duplicate inline `offset=` is an error.
               if (embedOffset !== undefined) {
                 return err(
                   parseErrors.queryParam(
@@ -206,10 +199,7 @@ export function parseSelect(raw: string): Result<readonly SelectItem[], CloudRes
               }
               embedOffset = n;
             } else if (trimmedInner.startsWith('order=')) {
-              // BUG FIX (#AA14): `order=` with an empty body used to
-              // parse as `embedOrder: []`, which downstream treats as
-              // "order by nothing". Reject the empty shape.
-              // BUG FIX (#AA15): reject duplicate inline `order=` too.
+              // Empty `order=` and duplicate inline `order=` are errors.
               if (embedOrder !== undefined) {
                 return err(
                   parseErrors.queryParam(
@@ -318,14 +308,14 @@ function tryParseCanonicalAggregateField(
   const fnName = working.slice(0, parenStart);
   if (!AGGREGATE_SET.has(fnName)) return null;
 
-  // BUG FIX (#T): alias must be a plain identifier for aggregates too.
+  // Alias must be a plain identifier for aggregates too.
   if (alias !== undefined && !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(alias)) {
     return err(
       parseErrors.queryParam('select', `invalid alias: "${alias}"`),
     );
   }
 
-  // BUG FIX (#K): reject an empty trailing `::` on an aggregate form.
+  // Reject an empty trailing `::` on an aggregate form.
   // `avg(x)::` would otherwise produce a SelectItem with `cast: ""`.
   if (aggregateCast !== undefined && aggregateCast.trim() === '') {
     return err(
@@ -333,7 +323,7 @@ function tryParseCanonicalAggregateField(
     );
   }
 
-  // BUG FIX (#S/#U): aggregate cast must not be chained (`avg(x)::int::float`)
+  // Aggregate cast must not be chained (`avg(x)::int::float`)
   // and must be a legal SQL type name (rejects semicolons, comments,
   // and other unsafe characters). Surrounding whitespace is trimmed —
   // `max(price)::  FLOAT8  ` is a tolerated shape.
@@ -355,15 +345,9 @@ function tryParseCanonicalAggregateField(
   // Canonical aggregate arguments: empty, `*` (count only), or a
   // simple column reference (possibly with a JSON path).
   //
-  // BUG FIX (#J): the old fallthrough returned `null` here so that a
-  // malformed aggregate like `avg(a,b)` would be reinterpreted as an
-  // embed on a relation named `avg`. Aggregate-shaped garbage must be
-  // an error, not a silent reinterpretation.
-  //
-  // BUG FIX (#AA5): the old guard `/[(),]/.test(innerContent)` falsely
-  // rejected quoted JSON keys that contain commas or parens
-  // (`avg(data->>"a,b")`, `avg(data->>"a)b")`). Scan with quote
-  // awareness and reject only top-level commas and unbalanced parens.
+  // Aggregate-shaped tokens with invalid arguments are an error, not
+  // silently reinterpreted as embeds. Scan with quote awareness and
+  // reject only top-level commas and unbalanced parens.
   const innerContent = working.slice(parenStart + 1, -1).trim();
   if (hasUnquotedCommaOrUnbalancedParens(innerContent)) {
     return err(
@@ -393,9 +377,8 @@ function tryParseCanonicalAggregateField(
     });
   }
 
-  // BUG FIX (#AA3): only `count(*)` is meaningful — `sum(*)`, `avg(*)`,
-  // etc. are nonsense. `count(*)` normalizes to the same shape as
-  // `count()`.
+  // Only `count(*)` is meaningful — `sum(*)`, `avg(*)`, etc. are
+  // nonsense. `count(*)` normalizes to the same shape as `count()`.
   if (innerContent === '*') {
     if (fn !== 'count') {
       return err(
@@ -441,10 +424,7 @@ function tryParseCanonicalAggregateField(
 function parseFieldItem(raw: string): Result<SelectItem, CloudRestError> {
   const aliasSplit = splitAliasPrefix(raw);
   const alias = aliasSplit.alias;
-  // BUG FIX (#T): the old parser returned whatever preceded `:` as the
-  // alias with no validation, so aliases containing semicolons, spaces,
-  // or other junk would pass. Relation aliases are regex-gated already
-  // — match that rule for plain field aliases too.
+  // Aliases must be plain identifiers.
   if (alias !== undefined && !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(alias)) {
     return err(
       parseErrors.queryParam('select', `invalid alias: "${alias}"`),
@@ -457,26 +437,20 @@ function parseFieldItem(raw: string): Result<SelectItem, CloudRestError> {
   if (castIdx > 0) {
     const rawCast = remaining.slice(castIdx + 2);
     remaining = remaining.slice(0, castIdx);
-    // BUG FIX (#K): `col::` must not produce `cast: ""`. The cast type
-    // is required when the `::` is present.
+    // `col::` must not produce `cast: ""`. The cast type is required.
     if (rawCast.trim() === '') {
       return err(
         parseErrors.queryParam('select', `empty cast in "${raw}"`),
       );
     }
-    // BUG FIX (#S): reject chained casts like `col::int::float`. The
-    // grammar permits exactly one optional `::cast` suffix.
+    // Reject chained casts like `col::int::float`.
     if (findFirstUnquotedCast(rawCast) !== -1) {
       return err(
         parseErrors.queryParam('select', `chained cast not allowed: "${raw}"`),
       );
     }
-    // BUG FIX (#U): cast name must be a plain SQL type identifier —
-    // letters/digits/underscore, optionally with a parenthesized
-    // precision like `numeric(10,2)` or a trailing `[]` array marker.
-    // Trim surrounding whitespace first (the builder also trims, so
-    // `col::  int  ` is a tolerated shape), then reject anything that
-    // contains semicolons, comments, or other unsafe characters.
+    // Cast name must be a plain SQL type identifier. Trim surrounding
+    // whitespace first, then reject anything unsafe.
     const trimmedCast = rawCast.trim();
     if (!isValidCastName(trimmedCast)) {
       return err(
@@ -503,10 +477,8 @@ function parseFieldItem(raw: string): Result<SelectItem, CloudRestError> {
     );
   }
 
-  // BUG FIX (#AA2/#AA3): the wildcard `*` is only meaningful as a bare
-  // select item. `*::int`, `*.avg()`, and `alias:*` are all nonsense —
-  // the wildcard has no column identity to cast, aggregate over, or
-  // alias. Reject the combinations here.
+  // The wildcard `*` is only meaningful as a bare select item. `*::int`,
+  // `*.avg()`, and `alias:*` are all nonsense.
   if (remaining === '*') {
     if (cast !== undefined) {
       return err(
@@ -566,11 +538,8 @@ function findFirstUnquotedAliasColon(str: string): number {
       continue;
     }
     if (ch === ':') {
-      // BUG FIX (#R): `::` is a cast marker. If we hit one BEFORE a
-      // lone `:`, the token has no alias at all — `col::type:alias`
-      // is not an alias of `col::type`, it is a malformed token.
-      // The old code skipped past `::` and kept looking for an alias
-      // colon further right, which misparsed the shape.
+      // `::` is a cast marker. If we hit one BEFORE a lone `:`, the
+      // token has no alias at all.
       if (str[i + 1] === ':') {
         return -1;
       }
@@ -662,9 +631,9 @@ function skipQuotedRegion(str: string, start: number, quoteChar: string): number
  *     `timestamp without time zone`, `time with time zone`,
  *     `time without time zone`
  *
- * BUG FIX (#AA20): the old regex was identifier-only and rejected
- * every multi-word PostgreSQL type. Accept the canonical multi-word
- * forms explicitly.
+ * Accepts canonical multi-word PostgreSQL types (`double precision`,
+ * `timestamp with time zone`, etc.) in addition to identifier-form
+ * types.
  *
  * Rejects semicolons, spaces (outside the multi-word allowlist),
  * comments, newlines, and anything else that could pollute generated

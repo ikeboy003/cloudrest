@@ -1,18 +1,18 @@
 // Mutation planner — turns (ParsedQueryParams + Payload + Preferences
 // + SchemaCache) into a typed `MutationPlan`.
 //
-// INVARIANT (CONSTITUTION §1.5): schema-aware validation lives here.
-// The builder trusts the plan and never revalidates column names.
+// Schema-aware validation lives here. The builder trusts the plan and
+// never revalidates column names.
 //
-// INVARIANT (critique #74): defaulted columns that are absent from
-// the payload are EXCLUDED from the INSERT column list so the DB
-// applies the DEFAULT. For `Prefer: missing=null`, the planner
-// INCLUDES every non-defaulted column so `json_to_record` returns
-// NULL — matching PostgREST's semantics.
+// Defaulted columns that are absent from the payload are EXCLUDED from
+// the INSERT column list so the DB applies the DEFAULT. For
+// `Prefer: missing=null`, the planner INCLUDES every non-defaulted
+// column so `json_to_record` returns NULL — matching PostgREST's
+// semantics.
 //
-// INVARIANT (critique #76): `RETURNING` fields are handled in the
-// builder, not by string-surgery. The plan flags the preference;
-// the builder emits `RETURNING table.*` explicitly.
+// `RETURNING` fields are handled in the builder, not by string-surgery.
+// The plan flags the preference; the builder emits `RETURNING table.*`
+// explicitly.
 
 import { err, ok, type Result } from '@/core/result';
 import {
@@ -150,7 +150,7 @@ function planInsert(
   );
   if (!onConflict.ok) return onConflict;
 
-  // BUG FIX: an empty JSON array body (`[]`) has `isEmptyPayload=true`
+  // An empty JSON array body (`[]`) has `isEmptyPayload=true`
   // AND `isArrayBody=true`. Without this guard the request would flow
   // through the `defaultValues` branch and the builder would emit
   // `INSERT ... DEFAULT VALUES`, inserting ONE default row for a
@@ -187,13 +187,9 @@ function planUpdate(
   if (!payload.ok) return payload;
   const { rawBody, payloadKeys, isArrayBody } = payload.value;
 
-  // BUG FIX: PATCH with an array JSON body used to flow through
-  // the builder as-is, where `json_to_record($1::json)` would
-  // fail at Postgres runtime with an opaque parse error because
-  // it expects a JSON object, not an array. PostgREST rejects
-  // the same request at parse time with PGRST102. Mirror that
-  // behavior — PATCH semantics are "apply ONE set of values to
-  // ALL matched rows", which an array cannot express.
+  // PATCH with an array JSON body is rejected — PATCH semantics are
+  // "apply ONE set of values to ALL matched rows", which an array
+  // cannot express. PostgREST rejects the same with PGRST102.
   if (isArrayBody) {
     return err(
       parseErrors.invalidBody(
@@ -214,13 +210,10 @@ function planUpdate(
     }
   }
 
-  // BUG FIX: embedded filters (`?authors.name=eq.Bob`) are not
-  // supported on mutations. The parser collects them on
-  // `filtersNotRoot` and the planner used to silently ignore that
-  // list, which meant a request with ONLY embedded filters planned
-  // with NO WHERE clause — a table-wide UPDATE/DELETE. Refuse the
-  // request at plan time so the builder never sees a mutation
-  // missing its WHERE.
+  // Embedded filters (`?authors.name=eq.Bob`) are not supported on
+  // mutations. A request with ONLY embedded filters would plan with
+  // NO WHERE clause — a table-wide UPDATE/DELETE. Refuse at plan
+  // time so the builder never sees a mutation missing its WHERE.
   const embeddedCheck = rejectEmbeddedFilters(input.parsed);
   if (embeddedCheck !== null) return err(embeddedCheck);
 
@@ -250,10 +243,8 @@ function planUpdate(
     }
   }
 
-  // BUG FIX: root logic trees (`?or=(...)`) used to reach the SQL
-  // layer without any column validation — a typo inside a logic
-  // tree surfaced as an opaque Postgres error. Walk the tree the
-  // same way plan-read does so bad columns become clean PGRST204.
+  // Validate root logic tree columns so a typo inside a logic tree
+  // surfaces as PGRST204 instead of an opaque Postgres error.
   for (const tree of logic) {
     const check = validateLogicTreeColumns(table, tree);
     if (!check.ok) return check;
@@ -298,9 +289,8 @@ function planDelete(
   table: Table,
   returnPreference: ReturnPreference,
 ): Result<DeletePlan, CloudRestError> {
-  // BUG FIX: reject embedded filters — see planUpdate for context.
-  // A DELETE with only embedded filters would plan with NO WHERE
-  // clause and wipe the table.
+  // Reject embedded filters — a DELETE with only embedded filters
+  // would plan with NO WHERE clause and wipe the table.
   const embeddedCheck = rejectEmbeddedFilters(input.parsed);
   if (embeddedCheck !== null) return err(embeddedCheck);
 
@@ -328,7 +318,7 @@ function planDelete(
     }
   }
 
-  // BUG FIX: validate root logic columns — see planUpdate.
+  // Validate root logic columns — see planUpdate.
   for (const tree of logic) {
     const check = validateLogicTreeColumns(table, tree);
     if (!check.ok) return check;
@@ -359,12 +349,10 @@ function collectRootLogic(parsed: ParsedQueryParams): readonly LogicTree[] {
 }
 
 /**
- * BUG FIX (#HH9): the old helper returned `true` for wildcard
- * filters, which left the planner accepting `*=eq.1` and leaving
- * the builder to reject it. Refuse at plan time so the error
- * originates from the schema layer where the user's request is
- * being interpreted. Return a discriminated result so the caller
- * can map the two failures distinctly.
+ * Refuse wildcard filters at plan time so the error originates from
+ * the schema layer where the user's request is being interpreted.
+ * Return a discriminated result so the caller can map the two
+ * failures distinctly.
  */
 type FilterValidationFailure =
   | { readonly kind: 'column-not-found' }

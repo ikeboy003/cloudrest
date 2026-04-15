@@ -64,9 +64,8 @@ export function __resetJwksCacheForTest(): void {
  * so `authenticate` can surface a clean PGRST303 / 500 error to
  * the client without an unhandled exception escaping the Worker.
  *
- * BUG FIX (#GG6): the old code threw on non-OK HTTP responses and
- * on JSON-parse failures, and `verifySignature` did not catch them,
- * so a bad IdP response became an unhandled request failure.
+ * Returns `null` on any failure so a bad IdP response doesn't become
+ * an unhandled request failure.
  */
 /**
  * Fetch-or-cache the JWKS document. Returns the entry including its
@@ -130,9 +129,7 @@ export async function getJwksKey(
   // defense in depth).
   if (!uri.startsWith('https://')) return null;
 
-  // BUG FIX (#GG4): fail closed on any alg outside the strict JWS
-  // allowlist so the loose `startsWith('RS')`/`startsWith('ES')`/
-  // `startsWith('HS')` matches below cannot pick up junk.
+  // Fail closed on any alg outside the strict JWS allowlist.
   if (!isRsaAlg(alg) && !isEcAlg(alg) && !isHmacAlg(alg)) return null;
 
   let entry = await fetchJwks(uri, false);
@@ -176,10 +173,8 @@ export async function getJwksKey(
     return null;
   }
 
-  // BUG FIX (#GG6): WebCrypto throws on malformed JWKs. Catch the
-  // exception and return null so the caller produces a clean
-  // "cryptographic operation failed" error instead of propagating
-  // an uncaught DOMException out of the Worker.
+  // WebCrypto throws on malformed JWKs. Catch and return null so the
+  // caller produces a clean error instead of an uncaught DOMException.
   let key: CryptoKey;
   try {
     key = await crypto.subtle.importKey(

@@ -1,17 +1,11 @@
 // Claim-path walker.
 //
-// Stage 8a: file move only. Behavior-preserving port of
-// `walkClaimPath`, `parseClaimPath`, `parseClaimFilter`,
-// `matchesClaimFilter`, `sliceClaimString`, and `stringifyClaimValue`
-// from cloudrest-public/src/auth.ts.
-//
-// Grammar (recap): `.key` / `["quoted key"]` / `[index]` /
+// Grammar: `.key` / `["quoted key"]` / `[index]` /
 // `[start:end]` / `[?(@ OP "value")]` where OP is one of
 // `==`, `!=`, `==^`, `^==`, `*==`.
 //
-// SECURITY TODO (Stage 11 §11.7): parse errors surface at config-load
-// time via `validateRoleClaim`, and the authenticator uses the
-// pre-validated path. Stage 8a keeps the runtime walker as-is.
+// SECURITY: parse errors surface at config-load time via
+// `validateRoleClaim`; the authenticator uses the pre-validated path.
 
 // ----- Step shapes -----------------------------------------------------
 
@@ -40,15 +34,11 @@ export type ClaimPathStep =
  * Walk a claim path against a JSON value. Returns the resolved leaf
  * or `undefined` when any step misses or the path is malformed.
  *
- * BUG FIX (#GG3): the old walker returned the WHOLE `value` whenever
- * `parseClaimPath` returned an empty array — which happens for BOTH
- * a literally empty path AND for a syntactically invalid path
- * (`.role!`, `.["unterminated`, etc.). `authenticate` then
- * JSON-stringified the entire JWT payload and used it as the role,
- * which is a severe security hole. The walker now distinguishes
- * "empty path" (trimmed raw is empty → return the root value) from
- * "parse failed" (non-empty raw, parser returned empty → return
- * undefined so the caller falls back to the default/anon role).
+ * When `parseClaimPath` returns an empty array for a non-empty raw
+ * path, that means the path is syntactically invalid. Return
+ * `undefined` so the caller falls back to the default/anon role,
+ * rather than returning the root value (which would leak the entire
+ * JWT payload as the role string).
  */
 export function walkClaimPath(value: unknown, rawPath: string): unknown {
   const trimmed = rawPath.trim();

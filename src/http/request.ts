@@ -19,6 +19,7 @@ import { parseAcceptHeader, parseContentTypeHeader } from './media/parse';
 import type { MediaType } from './media/types';
 import { parsePrefer, type Preferences } from './preferences';
 import { ALL_ROWS, parseRange, type NonnegRange } from './range';
+import { applyPreset } from '@/presets/apply';
 
 // ----- Resource and action types ---------------------------------------
 
@@ -113,14 +114,14 @@ export function parseHttpRequest(
   config: AppConfig,
   request: Request,
 ): Result<ParsedHttpRequest, CloudRestError> {
-  const url = new URL(request.url);
+  // Apply query presets BEFORE anything else reads query params —
+  // `?view=feed` expands onto the URL and the original `view` key is
+  // removed. Subsequent parsing sees the expanded form.
+  const url = applyPreset(new URL(request.url), config.presets);
   const method = request.method;
-  // BUG FIX (#GG17): a malformed percent-encoded segment (`%gg`,
-  // `%Z1`, lone `%`) used to fall through `decodeURIComponent`'s
-  // `URIError` catch and return the raw, undecoded segment — so the
-  // router silently routed `/books/%gg` as a relation literally
-  // named `%gg`, hitting a schema error deep in the planner. Return
-  // PGRST100 at the parse boundary instead.
+  // A malformed percent-encoded segment (`%gg`, `%Z1`, lone `%`)
+  // returns PGRST100 at the parse boundary instead of falling through
+  // with the raw undecoded segment.
   const pathResult = decodePathSegments(url.pathname);
   if (!pathResult.ok) return pathResult;
   const pathSegments = pathResult.value;
@@ -192,8 +193,7 @@ function decodePathSegments(
     try {
       segments.push(decodeURIComponent(segment));
     } catch {
-      // BUG FIX (#GG17): malformed percent-encoding surfaces as a
-      // PGRST125 invalid-resource-path, not a silent pass-through.
+      // Malformed percent-encoding surfaces as PGRST125, not a silent pass-through.
       return err(parseErrors.invalidResourcePath());
     }
   }

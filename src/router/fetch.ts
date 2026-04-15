@@ -1,21 +1,12 @@
 // Top-level HTTP dispatch — the Worker's `fetch` entry point.
 //
-// INVARIANT (CONSTITUTION §1.8, PHASE_B Stage 8): this file is the
-// canonical router. It:
+// This file is the canonical router. It:
 //   1. Loads config (once per isolate).
 //   2. Parses the HTTP request (`http/request.ts`).
-//   3. Authenticates (Stage 8a stub → Stage 11 hardened).
+//   3. Authenticates.
 //   4. Resolves the handler from the route table.
 //   5. Invokes the handler with a populated `HandlerContext`.
 //   6. Formats any `CloudRestError` into a final HTTP response.
-//
-// This file MUST stay under 200 lines. If a concern grows beyond a
-// few lines, it moves to its own module. The old `index.ts` monolith
-// is the anti-example.
-//
-// Stage 8 scope: happy path for `GET /{relation}` plus top-level
-// error formatting. Stages 11/13/16 layer CORS, rate-limit, cache on
-// top without changing this file's structure.
 
 import type { AppConfig } from '@/config/schema';
 import type {
@@ -59,7 +50,7 @@ export async function handleFetch(
     return formatError(parsed.error, deps.config);
   }
 
-  // 2. Authenticate (Stage 8a stub — see `src/auth/authenticate.ts`).
+  // 2. Authenticate.
   const authResult = await authenticate(request.headers, deps.config);
   if (!authResult.ok) {
     stopTotal();
@@ -109,13 +100,13 @@ export async function handleFetch(
  * failure in the pipeline flows through here; no handler returns a
  * raw `Response` for its own errors.
  *
- * STAGE 11 SECURITY FIXES:
- *  - §11.8 `CLIENT_ERROR_VERBOSITY=minimal` applied via
- *    `applyVerbosity` — minimal strips `details` and `hint` so a
- *    public-facing deployment doesn't leak internal error detail.
- *  - §11.9 `WWW-Authenticate: Bearer` challenge on the three
- *    auth codes PostgREST uses. The `error` / `error_description`
- *    parameters match RFC 6750 §3.
+ * SECURITY:
+ *  - `CLIENT_ERROR_VERBOSITY=minimal` applied via `applyVerbosity` —
+ *    minimal strips `details` and `hint` so a public-facing deployment
+ *    doesn't leak internal error detail.
+ *  - `WWW-Authenticate: Bearer` challenge on the three auth codes
+ *    PostgREST uses. The `error` / `error_description` parameters
+ *    match RFC 6750 §3.
  */
 function formatError(error: CloudRestError, config: AppConfig): Response {
   const effective = applyVerbosity(
@@ -142,8 +133,8 @@ function formatError(error: CloudRestError, config: AppConfig): Response {
 }
 
 /**
- * §11.9 — return the RFC 6750 Bearer challenge string for the
- * auth-family PGRST codes, or null for every other error.
+ * Return the RFC 6750 Bearer challenge string for the auth-family
+ * PGRST codes, or null for every other error.
  *
  * - `invalid_token`    for decode failures (PGRST301) and claim
  *                      problems / expired tokens (PGRST303).

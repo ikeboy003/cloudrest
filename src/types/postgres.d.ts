@@ -5,7 +5,7 @@
 // type graph. Declaring the minimal shape we use here lets
 // `executor/client.ts` import it without dragging Node types in.
 //
-// INVARIANT (CONSTITUTION §4.3): the rewrite only uses
+// INVARIANT: the rewrite only uses
 // `SqlClient`'s two methods on the returned value. Keep the shape
 // here narrow so a refactor doesn't accidentally call an
 // unsupported method.

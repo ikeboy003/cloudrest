@@ -1,6 +1,6 @@
 // Operator parser — turns a `<op>.<value>` fragment into a typed Operation.
 //
-// COMPAT: The set of operators is a closed allowlist matching PostgREST.
+// The set of operators is a closed allowlist matching PostgREST.
 // Unknown operator-shaped tokens (`[a-z]{2,12}`) produce PGRST100 rather
 // than silently widening the query to an RPC param (catches typos like
 // `ltee` or `eqq`).
@@ -78,13 +78,9 @@ export function parseOpExpr(
     remaining = remaining.slice(4);
   }
 
-  // BUG FIX (#V): the old split used `remaining.indexOf('.')`, which
-  // cut in the middle of a parenthesized operator argument. A typo
-  // like `fts(english.word` (missing close paren) would produce
-  // `opStr='fts(english'`, `val='word'` — neither of which matches any
-  // branch — and then fall through to `ok(null)`, becoming an RPC
-  // parameter. Track paren depth while searching for the split and
-  // reject unbalanced shapes outright.
+  // Track paren depth while searching for the op.value split so dots
+  // inside parenthesized arguments don't split prematurely, and
+  // unbalanced shapes are rejected outright.
   const splitResult = findOpValueSplit(remaining);
   if (splitResult === 'unbalanced') {
     return err(
@@ -95,10 +91,8 @@ export function parseOpExpr(
     );
   }
   if (splitResult === -1) {
-    // BUG FIX (#AA10): once the value-side `not.` has been consumed,
-    // the remainder MUST parse as an operator. `col=not.` (nothing
-    // after) and `col=not.EQ.1` (unknown op) used to silently become
-    // RPC params. Anything short of a valid op is an error.
+    // Once the value-side `not.` has been consumed, the remainder MUST
+    // parse as an operator. Anything short of a valid op is an error.
     if (negated) {
       return err(
         parseErrors.queryParam(
@@ -139,8 +133,8 @@ export function parseOpExpr(
   const operation = tryParseOperation(opStr, val);
   if (!operation.ok) return operation;
   if (operation.value === null) {
-    // BUG FIX (#AA10): once `not.` was consumed, failing to recognize
-    // the body is a parse error, not an RPC fallthrough.
+    // Once `not.` was consumed, failing to recognize the body is a
+    // parse error, not an RPC fallthrough.
     if (negated) {
       return err(
         parseErrors.queryParam(
@@ -162,7 +156,7 @@ function tryParseOperation(
   opStr: string,
   val: string,
 ): Result<Operation | null, CloudRestError> {
-  // BUG FIX (#19): operator parentheses are meaningful only for:
+  // Operator parentheses are meaningful only for:
   //   - quantifiers `(any)` / `(all)` on QUANT_OPS
   //   - languages `(english)` etc. on FTS_OPS
   //
@@ -213,9 +207,8 @@ function tryParseOperation(
         parseErrors.queryParam(opStr, 'empty FTS language argument'),
       );
     }
-    // BUG FIX (#19): `fts(any).word` used to parse with `language: 'any'`.
-    // Reject `any` / `all` here so they cannot be confused with the
-    // quantifier form, which is disallowed for FTS.
+    // Reject `any` / `all` as FTS language — they are quantifiers,
+    // which are disallowed for FTS operators.
     if (parenArg === 'any' || parenArg === 'all') {
       return err(
         parseErrors.queryParam(
@@ -232,9 +225,7 @@ function tryParseOperation(
         ),
       );
     }
-    // BUG FIX (#AA8): `fts(english).` used to parse as an FTS query
-    // with an empty search string. An empty FTS query is never
-    // meaningful at the SQL level — reject it here.
+    // An empty FTS query is never meaningful at the SQL level.
     if (val === '') {
       return err(
         parseErrors.queryParam(opStr, 'FTS query cannot be empty'),
@@ -315,8 +306,7 @@ function tryParseOperation(
 
   const lowerBase = base.toLowerCase();
   if (lowerBase in FTS_OPS) {
-    // BUG FIX (#AA8): empty FTS value must error (parity with the
-    // FTS-with-language branch above).
+    // Empty FTS value is an error.
     if (val === '') {
       return err(
         parseErrors.queryParam(base, 'FTS query cannot be empty'),
@@ -325,19 +315,10 @@ function tryParseOperation(
     return ok({ type: 'fts', operator: FTS_OPS[lowerBase]!, value: val });
   }
 
-  // COMPAT: a token composed of letters (length >= 2) looks like an
-  // operator. If we didn't recognize it, it's a typo, not an RPC
-  // param. Produce a helpful error instead of silently treating the
-  // whole key=value as an RPC parameter.
-  //
-  // BUG FIX (#W): the old upper bound `{2,12}` was arbitrary and left
-  // a hole for long typos (`reallyreallylong.val`). Drop the upper
-  // bound.
-  //
-  // BUG FIX (#AA9): the old regex `^[a-z]{2,}$` only caught purely
-  // lowercase names. `id=EQ.1` and `id=eQ.1` both fell through as
-  // RPC params — brutal UX on relation reads. Match case-insensitively
-  // so that any letter-only typo of any case is surfaced as an error.
+  // A token composed of 2+ letters looks like an operator typo.
+  // Produce a helpful error instead of silently treating the whole
+  // key=value as an RPC parameter. Case-insensitive so `EQ`, `eQ`,
+  // etc. are all caught.
   if (/^[a-zA-Z]{2,}$/.test(base)) {
     return err(parseErrors.queryParam(base, `unknown operator "${base}"`));
   }
@@ -393,8 +374,8 @@ function parseGeoOperation(val: string): Result<Operation | null, CloudRestError
         ),
       );
     }
-    // BUG FIX (#20): strict numeric parsing. Reject empty strings,
-    // hex (0x10), scientific notation, trailing junk.
+    // Strict numeric parsing. Reject empty strings, hex, scientific
+    // notation, trailing junk.
     const lat = strictParseFloat(parts[0]!);
     const lng = strictParseFloat(parts[1]!);
     const distance = strictParseFloat(parts[2]!);
@@ -406,10 +387,7 @@ function parseGeoOperation(val: string): Result<Operation | null, CloudRestError
         ),
       );
     }
-    // BUG FIX (#X): validate coordinate ranges and non-negative
-    // distance. The planner / DB would otherwise receive nonsensical
-    // inputs like `geo.dwithin(999,999,-5)` and either fail obscurely
-    // or silently clip them.
+    // Validate coordinate ranges and non-negative distance.
     const rangeErr = validateLatLng('geo.dwithin', lat, lng);
     if (rangeErr) return rangeErr;
     if (distance < 0) {
@@ -437,7 +415,7 @@ function parseGeoOperation(val: string): Result<Operation | null, CloudRestError
         parseErrors.queryParam('geo.nearby', 'lat and lng must be numeric literals'),
       );
     }
-    // BUG FIX (#X): same range check as dwithin.
+    // Same range check as dwithin.
     const rangeErr = validateLatLng('geo.nearby', lat, lng);
     if (rangeErr) return rangeErr;
     return ok({ type: 'geo', operator, lat, lng });
@@ -448,10 +426,8 @@ function parseGeoOperation(val: string): Result<Operation | null, CloudRestError
       parseErrors.queryParam(`geo.${operator}`, 'GeoJSON or WKT argument required'),
     );
   }
-  // BUG FIX (#Y): the GeoJSON/WKT branch used to accept any non-empty
-  // string — `geo.within(not even geo)` slipped through. Do a cheap
-  // structural sniff before handing off to the builder so typos
-  // surface as PGRST100 here rather than as obscure DB errors.
+  // Do a cheap structural sniff before handing off to the builder so
+  // typos surface as PGRST100 here rather than as obscure DB errors.
   const trimmed = args.trim();
   if (!looksLikeGeoJsonOrWkt(trimmed)) {
     return err(
@@ -514,8 +490,8 @@ function looksLikeGeoJsonOrWkt(raw: string): boolean {
  * Tracks paren depth AND quote state so nested parens (WKT) and
  * quoted JSON string values (`{"name":"a)b"}`) are preserved.
  *
- * BUG FIX (#AA7): the old scan was paren-only, so a `)` inside a
- * JSON string value would close the geo op prematurely.
+ * Tracks paren depth AND quote state so nested parens (WKT) and
+ * quoted JSON string values are preserved.
  *
  * Returns null if the shape doesn't match.
  */
@@ -563,7 +539,7 @@ function splitGeoOpAndArgs(val: string): { name: string; args: string } | null {
  * lat/lng/meters style arguments even when one of them contains a
  * complex WKT expression or JSON payload.
  *
- * BUG FIX (#AA7): the old split was paren-aware only.
+ * Paren- and quote-aware comma splitting for geo operation arguments.
  */
 function splitGeoCommaArgs(args: string): string[] {
   const result: string[] = [];

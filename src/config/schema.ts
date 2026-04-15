@@ -1,11 +1,8 @@
 // Grouped AppConfig.
 //
-// INVARIANT: AppConfig is a struct of grouped subconfigs, not a flat bag.
+// AppConfig is a struct of grouped subconfigs, not a flat bag.
 // Adding a new knob means adding it to the right group, not growing a
-// flat list. See CONSTITUTION §3.2.
-//
-// Groups added later (realtime, webhooks, observability, presets, admin)
-// widen this interface when their stage lands.
+// flat list.
 
 import type { ErrorVerbosity } from '@/core/errors';
 
@@ -22,8 +19,8 @@ export type OpenApiMode = 'follow-privileges' | 'ignore-privileges' | 'disabled'
 export type LogLevel = 'crit' | 'error' | 'warn' | 'info';
 
 /**
- * Postgres connection-pool settings. Stage 7 (executor boundary) reads
- * this to size the per-isolate `postgres.js` client.
+ * Postgres connection-pool settings. The executor boundary reads this
+ * to size the per-isolate `postgres.js` client.
  */
 export interface PoolConfig {
   /** `DB_MAX_CONNECTIONS` — max connections held open in the isolate. */
@@ -51,7 +48,7 @@ export interface DatabaseConfig {
   readonly aggregatesEnabled: boolean;
   /** Transaction end policy. See PostgREST Prefer: tx semantics. */
   readonly txEnd: TxEndMode;
-  /** Per-statement timeout in milliseconds; CONSTITUTION §4.1. */
+  /** Per-statement timeout in milliseconds. */
   readonly statementTimeoutMs: number;
   /** `Content-Profile` / `Accept-Profile` override for the default schema. */
   readonly rootSpec: string | null;
@@ -61,7 +58,7 @@ export interface DatabaseConfig {
   readonly schemaRefreshIntervalSeconds: number;
   /** Allow `Prefer: timezone=...` header. */
   readonly timezoneEnabled: boolean;
-  /** Debug knob — must default off in production; CONSTITUTION §11.2. */
+  /** Debug knob — must default off in production. */
   readonly debugEnabled: boolean;
   /** Allow `application/vnd.pgrst.plan+json` media type for EXPLAIN output. */
   readonly planEnabled: boolean;
@@ -78,8 +75,7 @@ export interface AuthConfig {
   readonly jwtSecretIsBase64: boolean;
   /**
    * JSON-path for the role claim, e.g. `.role` or `.app_metadata.roles[0]`.
-   * SECURITY: A parse error here is a ConfigError, not a silent fallback;
-   * see CONSTITUTION §5.6.
+   * SECURITY: A parse error here is a ConfigError, not a silent fallback.
    */
   readonly jwtRoleClaim: string;
   /** Required `aud` claim. Null = any audience accepted. */
@@ -89,7 +85,7 @@ export interface AuthConfig {
 export interface CorsConfig {
   /**
    * Null = CORS disabled (no Access-Control-Allow-Origin header, 403 on
-   * preflight). Explicit `['*']` allows wildcard; CONSTITUTION §10.1.
+   * preflight). Explicit `['*']` allows wildcard.
    */
   readonly allowedOrigins: readonly string[] | null;
 }
@@ -97,6 +93,10 @@ export interface CorsConfig {
 export interface LimitsConfig {
   /** Max request body bytes. Checked against Content-Length before buffer. */
   readonly maxBodyBytes: number;
+  /** Max batch request body bytes. */
+  readonly maxBatchBodyBytes: number;
+  /** Max operations in a single batch request. */
+  readonly maxBatchOps: number;
   /** Max nested embed depth. */
   readonly maxEmbedDepth: number;
   /** Rate limit per IP per minute. 0 = disabled. */
@@ -122,8 +122,8 @@ export interface ObservabilityConfig {
 /**
  * AppConfig — grouped, validated application config.
  *
- * INVARIANT: every field is readonly. Mutation at runtime is a bug —
- * config changes at boot only.
+ * Every field is readonly. Mutation at runtime is a bug — config
+ * changes at boot only.
  */
 /**
  * Per-table edge-cache entry. `claimsInKey` is the explicit list of
@@ -136,14 +136,26 @@ export interface CacheTableEntry {
 }
 
 /**
- * Edge-cache config — STAGE 13. The entire section is optional so a
- * deployment that doesn't set CACHE_TABLE_TTLS gets NO caching, not
- * a "cache everything" default.
+ * Edge-cache config. The entire section is optional so a deployment
+ * that doesn't set CACHE_TABLE_TTLS gets NO caching, not a "cache
+ * everything" default.
  */
 export interface CacheConfig {
   readonly defaultTtlSeconds: number;
   /** Keyed by `schema.table`. Unlisted tables are never cached. */
   readonly tables: Readonly<Record<string, CacheTableEntry>>;
+}
+
+export interface QueryPreset {
+  readonly filters: readonly (readonly [string, string])[];
+  readonly order: string | null;
+  readonly limit: number | null;
+}
+
+export interface RealtimeConfig {
+  readonly enabled: boolean;
+  readonly pollIntervalMs: number;
+  readonly maxBatchSize: number;
 }
 
 export interface AppConfig {
@@ -155,17 +167,20 @@ export interface AppConfig {
   readonly observability: ObservabilityConfig;
   /** Edge cache — opt-in per table. `undefined` = no caching. */
   readonly cache?: CacheConfig;
+  /** Query presets. */
+  readonly presets: ReadonlyMap<string, QueryPreset>;
+  /** Realtime SSE config. */
+  readonly realtime: RealtimeConfig;
 }
 
 // ----- Config errors ----------------------------------------------------
 
 /**
  * ConfigError — surfaced when an env var fails to parse or validate.
- * Stage 2 collects these into an array and returns the whole list, so
- * operators see every problem at once instead of fixing them one by one.
+ * Collected into an array so operators see every problem at once
+ * instead of fixing them one by one.
  *
- * CONSTITUTION §3.1: no silent fallback. Missing vars default; invalid
- * vars fail.
+ * No silent fallback. Missing vars default; invalid vars fail.
  */
 export interface ConfigError {
   readonly variable: string;

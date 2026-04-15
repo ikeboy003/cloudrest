@@ -1,10 +1,6 @@
 // Shared parser for the `response.headers` and `response.status` GUCs.
 //
-// BUG FIX (#6): the old codebase parsed these GUCs in TWO places —
-// `executor.ts` and the inline path in `response.ts` / `index.ts`.
-// Each had slightly different rules for header-list shapes and
-// forbidden headers. The rewrite has ONE implementation that both the
-// read and mutation paths route through.
+// ONE implementation that both the read and mutation paths route through.
 //
 // SECURITY: header names in the forbidden list cannot be set by
 // user-defined DB functions. Setting `Content-Length` or CORS headers
@@ -73,7 +69,7 @@ function isForbiddenGucHeader(name: string): boolean {
  * forbidden-list and would happily push `"X-Bad\r\nInjected"`
  * through, which later crashed `new Headers()` or split responses.
  *
- * BUG FIX (#FF5): validate the name before it reaches `Headers`.
+ * Validate the name before it reaches `Headers`.
  */
 const HTTP_TOKEN_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 function isValidHeaderName(name: string): boolean {
@@ -142,10 +138,9 @@ function parseGucHeaders(
 
   const out: (readonly [string, string])[] = [];
 
-  // BUG FIX (#FF5): header names must be valid HTTP tokens AND
-  // not on the forbidden list. Silently drop malformed names so a
-  // misconfigured DB function cannot crash response construction
-  // or inject headers via CR/LF in the name itself.
+  // Header names must be valid HTTP tokens AND not on the forbidden
+  // list. Silently drop malformed names so a misconfigured DB function
+  // cannot crash response construction or inject headers.
   const acceptName = (name: string): boolean =>
     isValidHeaderName(name) && !isForbiddenGucHeader(name);
 

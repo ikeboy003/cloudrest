@@ -14,8 +14,8 @@ import { renderField } from './field';
  * the current query. Used to resolve `?order=embed(col).asc` into a
  * reference the SQL engine can actually see.
  *
- * BUG FIX (#CC2): without this map, related ORDER BY terms rendered
- * as `"schema"."rel"."col"` even though the embed was only reachable
+ * Without this map, related ORDER BY terms would render as
+ * `"schema"."rel"."col"` even though the embed is only reachable
  * through a LATERAL join alias. Postgres would reject the query with
  * "missing FROM-clause entry".
  */
@@ -27,11 +27,10 @@ export function renderOrderTerm(
   builder: SqlBuilder,
   embedAliases?: EmbedAliasMap,
 ): Result<string, CloudRestError> {
-  // BUG FIX (#DD5): the wildcard `*` is not a legal ORDER BY target.
-  // `renderField` would happily emit `"schema"."table".*` which is
-  // not valid SQL in an ORDER BY. The planner now rejects this too,
-  // but keep a defensive guard so a malformed plan from a non-
-  // parser source cannot reach the driver.
+  // The wildcard `*` is not a legal ORDER BY target. `renderField`
+  // would happily emit `"schema"."table".*` which is not valid SQL
+  // in an ORDER BY. Defensive guard so a malformed plan cannot reach
+  // the driver.
   if (term.field.name === '*') {
     return err(
       parseErrors.queryParam(
@@ -42,12 +41,11 @@ export function renderOrderTerm(
   }
   let fieldSql: string;
   if (term.relation) {
-    // BUG FIX (#CC2): a related order term must reference the
-    // LATERAL alias that the embed was bound to, not a fake
-    // `{schema, name: relation}` qualified table. The planner
-    // already guarantees the embed exists and is to-one; if the
-    // alias map is missing (caller is inside a child subquery and
-    // has no embed context), refuse rather than emit invalid SQL.
+    // A related order term must reference the LATERAL alias that the
+    // embed was bound to, not a fake `{schema, name: relation}`
+    // qualified table. If the alias map is missing (caller is inside
+    // a child subquery with no embed context), refuse rather than
+    // emit invalid SQL.
     if (!embedAliases) {
       return err(
         parseErrors.queryParam(

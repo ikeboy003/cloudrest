@@ -140,12 +140,8 @@ export function splitTopLevel(
     return err(parseErrors.queryParam(context, 'unbalanced parentheses'));
   }
 
-  // BUG FIX (#AA1): always emit the trailing token when the input was
-  // non-empty. The old guard `current !== ''` silently dropped a
-  // trailing empty on inputs like `"a,b,"`, which leaked into every
-  // caller — `order=id.desc,`, `having=count().gt.1,`, `and=(x.eq.1,)`,
-  // `columns=id,`, etc. all silently became valid lists. When the
-  // whole input is empty, keep emitting `[]`.
+  // Always emit the trailing token when the input was non-empty.
+  // When the whole input is empty, emit `[]`.
   if (str.length > 0) {
     result.push(current);
   }

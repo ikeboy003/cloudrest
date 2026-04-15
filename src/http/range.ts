@@ -1,6 +1,6 @@
 // Range header parsing and Content-Range / status response helpers.
 //
-// COMPAT: Mirrors PostgREST's RangeQuery.hs. Ranges are inclusive bounds
+// Mirrors PostgREST's RangeQuery.hs. Ranges are inclusive bounds
 // in the Range header but stored internally as `{ offset, limit }` where
 // `limit = null` means "open-ended". Only GET honors the Range header;
 // PUT with any range is rejected.
@@ -50,13 +50,9 @@ export interface ParseRangeInput {
 export function parseRange(
   input: ParseRangeInput,
 ): Result<NonnegRange, CloudRestError> {
-  // BUG FIX (#GG13): the old code only parsed the Range header when
-  // the method was GET — a `Range: 0-24` on a PUT was therefore
-  // ignored silently even though the comment and `putLimitNotAllowed`
-  // error both promise rejection. PUT is now checked first: any
-  // Range header on PUT is an immediate PGRST114, regardless of
-  // whether the value parses. POST / PATCH / DELETE also have
-  // undefined semantics for Range and are rejected the same way.
+  // Any Range header on a non-GET/HEAD method is an immediate PGRST114.
+  // POST / PATCH / DELETE also have undefined semantics for Range and
+  // are rejected the same way.
   const rawRange = input.headers.get('range');
   if (rawRange !== null && input.method !== 'GET' && input.method !== 'HEAD') {
     return err(parseErrors.putLimitNotAllowed());

@@ -1,26 +1,23 @@
 // Schema introspection — builds a `SchemaCache` from a live Postgres
 // database via the executor's transaction primitive.
 //
-// INVARIANT (CONSTITUTION §13.3): introspection uses the same
-// Postgres client / transaction primitive that request queries use.
-// It does NOT open its own `pg.Client`. The in-memory helpers
+// Introspection uses the same Postgres client / transaction primitive
+// that request queries use. The in-memory helpers
 // (`emptySchemaCache`, `buildSchemaCacheFromTables`) stay in this
 // module so tests can hydrate a cache without a DB.
 //
-// INVARIANT (CONSTITUTION §4.1): `introspectFromPostgres` runs its
-// queries inside `runTransaction`, which always issues
-// `SET LOCAL statement_timeout`. There is no opt-out.
+// `introspectFromPostgres` runs its queries inside `runTransaction`,
+// which always issues `SET LOCAL statement_timeout`. There is no
+// opt-out.
 //
-// INVARIANT (CONSTITUTION §2.1): public entry points return
-// `Result<SchemaCache, CloudRestError>`. No throw crosses the
-// module boundary.
+// Public entry points return `Result<SchemaCache, CloudRestError>`.
+// No throw crosses the module boundary.
 //
 // RUNTIME: schema refresh will be driven by a Durable Object
 // listening for Postgres `NOTIFY cloudrest_schema_changed` events.
 // The DO holds a long-lived `LISTEN` connection (Workers can't) and
 // invalidates the cache when a DDL trigger fires the notification.
-// That coordinator lives in a later stage; this module only needs
-// to load a snapshot on demand.
+// This module only needs to load a snapshot on demand.
 
 import { err, ok, type Result } from '../core/result';
 import { serverErrors, type CloudRestError } from '../core/errors';
@@ -53,7 +50,7 @@ import {
   TABLES_SQL,
 } from './introspect-queries';
 
-// ----- In-memory helpers (unchanged from Stage 8) ----------------------
+// ----- In-memory helpers ------------------------------------------------
 
 export function emptySchemaCache(): SchemaCache {
   return {
@@ -89,11 +86,11 @@ export interface IntrospectInput {
 /**
  * Load the schema cache from the live Postgres database.
  *
- * INVARIANT: every catalog query runs through `runTransaction` with
- * the exact same `statement_timeout` / pool config as request
- * traffic. The three catalog reads each run in their own transaction
- * so a DDL change between them surfaces as a mismatch at load time
- * (better than a partial cache that hides the drift).
+ * Every catalog query runs through `runTransaction` with the exact
+ * same `statement_timeout` / pool config as request traffic. The
+ * three catalog reads each run in their own transaction so a DDL
+ * change between them surfaces as a mismatch at load time (better
+ * than a partial cache that hides the drift).
  */
 export async function introspectFromPostgres(
   input: IntrospectInput,
@@ -262,6 +259,7 @@ function parseTables(
         enumValues: rc.enum_values ?? [],
         generated: rc.is_generated ?? false,
         isGeo: /^(geometry|geography)$/i.test(rc.data_type),
+        geoKind: /^geometry$/i.test(rc.data_type) ? 'geometry' : /^geography$/i.test(rc.data_type) ? 'geography' : null,
       });
     }
 
@@ -372,7 +370,7 @@ function parseRelationships(
 
   const allDirect = [...forward, ...inverses];
 
-  // COMPAT: M2M inference — a junction table with two M2O FKs whose
+  // M2M inference — a junction table with two M2O FKs whose
   // columns are a subset of the junction's PK becomes two M2M
   // relationships (one in each direction) between the endpoints.
   const m2mRels: Relationship[] = [];
@@ -451,8 +449,8 @@ function parseRelationships(
 
   const finalRels = [...allDirect, ...m2mRels];
 
-  // COMPAT: only expose relationships whose foreign table lives in
-  // an exposed schema. Matches PostgREST's visibility rule.
+  // Only expose relationships whose foreign table lives in an
+  // exposed schema. Matches PostgREST's visibility rule.
   const map = new Map<string, Relationship[]>();
   const exposedSchemas = new Set(schemas);
   for (const rel of finalRels) {
@@ -537,8 +535,8 @@ function parseRoutines(
     else routines.set(key, [routine]);
   }
 
-  // COMPAT: PostgREST sorts overloads by fewest params so the first
-  // matching candidate is the simplest one.
+  // PostgREST sorts overloads by fewest params so the first matching
+  // candidate is the simplest one.
   for (const [key, overloads] of routines) {
     routines.set(
       key,

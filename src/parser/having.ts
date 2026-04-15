@@ -3,14 +3,11 @@
 // Grammar: comma-separated clauses. Each clause is:
 //   aggregate '(' [column[->jsonpath]] ')' '.' operator '.' value
 //
-// COMPAT: PostgREST form. Aggregate names are the same closed allowlist
-// used by the select grammar (CONSTITUTION §12.5).
-//
-// BUG FIX (#21): `sum()`/`avg()`/`min()`/`max()` with no column are
-// errors — only `count()` accepts an empty argument.
-//
-// BUG FIX (#22): field arguments carry a full `Field` AST so JSON paths
-// work consistently with select/filter/order.
+// PostgREST form. Aggregate names are the same closed allowlist used
+// by the select grammar. `sum()`/`avg()`/`min()`/`max()` with no
+// column are errors — only `count()` accepts an empty argument. Field
+// arguments carry a full `Field` AST so JSON paths work consistently
+// with select/filter/order.
 
 import { err, ok, type Result } from '@/core/result';
 import { parseErrors, type CloudRestError } from '@/core/errors';
@@ -29,10 +26,8 @@ export function parseHavingClauses(
   const partsResult = splitTopLevel(raw, ',', { context: 'having' });
   if (!partsResult.ok) return partsResult;
 
-  // BUG FIX (#F/#O): a stray comma used to silently drop the empty
-  // middle clause. Detect empties via the quote-aware split output so
-  // a quoted JSON key like `sum(data->>"a,,b")` does not false-
-  // positive the check.
+  // Detect empties via the quote-aware split output so a quoted JSON
+  // key like `sum(data->>"a,,b")` does not false-positive the check.
   for (const part of partsResult.value) {
     const trimmed = part.trim();
     if (!trimmed) {
@@ -62,9 +57,8 @@ export function parseHavingClauses(
     // JSON key inside the argument (e.g. `sum(data->>"a)b")`) does not
     // close the aggregate prematurely.
     //
-    // BUG FIX (#AA6): the old scan only tracked paren depth — it saw
-    // the `)` inside `"a)b"` and closed the aggregate at the wrong
-    // position. Walk with quote tracking to skip past quoted regions.
+    // Walk with quote tracking to skip past quoted regions — a `)` inside
+    // `"a)b"` must not close the aggregate prematurely.
     let argsEnd = -1;
     {
       let depth = 1;
@@ -113,7 +107,7 @@ export function parseHavingClauses(
       );
     }
 
-    // BUG FIX (#21): empty args only OK for count().
+    // Empty args only OK for count().
     let field: HavingClause['field'];
     if (argToken === '') {
       if (aggregate !== 'count') {
@@ -126,9 +120,7 @@ export function parseHavingClauses(
       }
       field = undefined;
     } else if (argToken === '*') {
-      // BUG FIX (#AA4): only `count(*)` is meaningful. `sum(*).gt.1`
-      // and `avg(*).gt.1` used to parse because parseField accepts
-      // `*` as a bare field name. Normalize `count(*)` to the
+      // Only `count(*)` is meaningful. Normalize to the
       // count-with-no-field shape and reject every other aggregate.
       if (aggregate !== 'count') {
         return err(
@@ -140,8 +132,8 @@ export function parseHavingClauses(
       }
       field = undefined;
     } else {
-      // BUG FIX (#22): parse the argument as a full Field so JSON paths
-      // like `sum(data->>'amount')` produce consistent ASTs.
+      // Parse the argument as a full Field so JSON paths like
+      // `sum(data->>'amount')` produce consistent ASTs.
       const fieldResult = parseField(argToken);
       if (!fieldResult.ok) return fieldResult;
       field = fieldResult.value;

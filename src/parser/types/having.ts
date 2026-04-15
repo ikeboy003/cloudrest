@@ -4,9 +4,8 @@
 // per comma-separated entry, each with an aggregate function, optional
 // field (count() has no field), and an OpExpr filter.
 //
-// BUG FIX (#22): the `field` slot used to be `string | undefined`,
-// which meant JSON paths inside having arguments could not be parsed
-// consistently with select/filter/order. It now carries a `Field` AST.
+// The `field` slot carries a `Field` AST so JSON paths inside having
+// arguments parse consistently with select/filter/order.
 
 import type { AggregateFunction } from './select';
 import type { Field } from './field';

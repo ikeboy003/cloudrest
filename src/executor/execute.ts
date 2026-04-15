@@ -1,10 +1,9 @@
 // High-level `runQuery` — the ONE function every handler calls.
 //
-// INVARIANT (CONSTITUTION §1.2, PHASE_B Stage 7): the return type is
-// `Result<QueryResult, CloudRestError>`, not the internal
-// `TransactionOutcome` union. Handlers never need to know whether the
-// transaction committed or rolled back — both produce rows that flow
-// through to the response layer.
+// The return type is `Result<QueryResult, CloudRestError>`, not the
+// internal `TransactionOutcome` union. Handlers never need to know
+// whether the transaction committed or rolled back — both produce rows
+// that flow through to the response layer.
 //
 // The `commit` vs `rollback` distinction is an implementation detail
 // of `transaction.ts`: rollback-preferred is a `Prefer: tx=rollback`
@@ -81,9 +80,9 @@ export async function runQuery(
  * Items 2–5 are concatenated into a single `SELECT set_config(...)`
  * batch that is executed as the transaction's `preQuerySql` step.
  *
- * BUG FIX (#GG16): always merge the config prelude into the caller's
- * value so a new composition path (auth, request.header, etc.)
- * cannot silently drop `search_path` / `APP_SETTINGS`.
+ * Always merge the config prelude into the caller's value so a new
+ * composition path (auth, request.header, etc.) cannot silently drop
+ * `search_path` / `APP_SETTINGS`.
  */
 function withPrelude(
   context: HandlerContext,
@@ -120,7 +119,7 @@ function withPrelude(
   }
 
   // Merge with any caller-supplied `preQuerySql`. The caller path
-  // is rare today (Stage 9 doesn't pass one, neither does read), so
+  // is rare today (neither mutation nor read passes one), so
   // the caller may legitimately pass something that is NOT a
   // `SELECT set_config(...)` shape. In that case we cannot splice
   // — fall back to executing the caller separately. For the common

@@ -18,9 +18,9 @@
 //       FROM (<inner select>) AS "pgrst_1"
 //     ) AS "pgrst_1" ON TRUE
 //
-// INVARIANT (CONSTITUTION §1.3): every user-controlled value reaches
-// SQL via SqlBuilder.addParam — filter bindings inside the child plans
-// go through the standard filter renderer.
+// Every user-controlled value reaches SQL via SqlBuilder.addParam —
+// filter bindings inside the child plans go through the standard filter
+// renderer.
 
 import { parseErrors, type CloudRestError } from '@/core/errors';
 import { err, ok, type Result } from '@/core/result';
@@ -32,10 +32,12 @@ import { escapeIdent, qualifiedIdentifierToSql } from './identifiers';
 import {
   renderField,
   renderFilter,
+  renderGroupByFromProjection,
   renderLimitOffset,
   renderLogicTree,
   renderOrderClause,
   renderSelectProjection,
+  renderSelectProjectionAndGrouping,
 } from './fragments';
 import { isValidCast } from './fragments/operators';
 import type { SqlBuilder } from './sql';
@@ -63,16 +65,9 @@ export interface RenderedEmbeds {
    * `order=rel(col).asc` against either form, so the builder must
    * be able to find both.
    *
-   * BUG FIX (#CC2): root-level `?order=rel(col).asc` used to render
-   * a raw `"schema"."rel"."col"` reference in ORDER BY, even though
-   * the embed was joined via `LEFT JOIN LATERAL (...) AS pgrst_1`.
-   * Postgres then rejected the query with "missing FROM-clause
-   * entry". Use the lateral alias instead.
-   *
-   * BUG FIX (#DD4): previously only the user-visible alias was
-   * mapped, so `select=id,author:authors(name)&order=authors(...)`
-   * passed planning (the planner accepts the child-table name) and
-   * then failed at render. Both names are mapped now.
+   * Root-level `?order=rel(col).asc` resolves to the LATERAL alias
+   * (`"pgrst_1"."col"`). Both the user-visible alias and the
+   * child-table name are mapped so either form resolves correctly.
    */
   readonly embedAliases: ReadonlyMap<string, string>;
   /**
@@ -104,15 +99,11 @@ export function renderEmbeds(
   const embedAliases = new Map<string, string>();
   let hasRowFilteringJoins = false;
 
-  // BUG FIX (#FF4): the child-table-name fallback entry is only
-  // safe when at most ONE embed on this request points at that
-  // table. When multiple aliases reuse the same child table
-  // (`select=a:authors(id),b:authors(name)`), a bare `authors`
-  // reference is ambiguous — the old code set the map twice and
-  // silently preferred the last insert. Count occurrences up
-  // front so ambiguous child-table names are omitted from the
-  // map entirely; the planner has already rejected the ambiguous
-  // ORDER BY case with PGRST201.
+  // The child-table-name fallback entry is only safe when at most
+  // ONE embed on this request points at that table. When multiple
+  // aliases reuse the same child table, a bare reference is
+  // ambiguous. Count occurrences up front so ambiguous child-table
+  // names are omitted from the map entirely.
   const childTableNameCounts = new Map<string, number>();
   for (const embed of embeds) {
     const name = embed.child.target.name;
@@ -248,15 +239,11 @@ function renderSpreadEmbed(
   if (!innerResult.ok) return innerResult;
   const column = `${escapedAlias}.*`;
   const join = `${joinWord} JOIN LATERAL (${innerResult.value}) AS ${escapedAlias} ON TRUE`;
-  // BUG FIX (#FF3): a to-one spread embed (`...authors(name)`) is
-  // joined through the same LATERAL alias shape as a non-spread
-  // to-one embed, so it is a valid target for root-level
-  // `order=rel(col).asc`. The planner accepts the combination
-  // because the relationship is to-one, but the builder used to
-  // return no `lateralAlias` here, so the ORDER BY resolver then
-  // failed to find the embed and errored. Only to-ONE spreads are
-  // reported — to-many spreads aggregate columns rather than
-  // project a single row, so ordering by them has no meaning.
+  // A to-one spread embed is joined through the same LATERAL alias
+  // shape as a non-spread to-one embed, so it is a valid target for
+  // root-level `order=rel(col).asc`. Only to-ONE spreads are
+  // reported — to-many spreads aggregate columns rather than project
+  // a single row, so ordering by them has no meaning.
   if (embed.isToOne) {
     return ok({ column, join, lateralAlias: alias });
   }
@@ -300,11 +287,8 @@ function renderAggregateEmbed(
       s.type === 'field' && s.aggregateFunction !== undefined,
   );
 
-  // BUG FIX (#CC3): the old aggregate-embed path assembled its own
-  // `"schema"."table"."col"` string and skipped `renderField`, so any
-  // JSON path or cast on the aggregate argument was silently dropped.
-  // Route through the real field renderer and wrap the cast/alias the
-  // same way renderSelectProjection does.
+  // Route through the real field renderer so JSON path or cast on
+  // the aggregate argument is not silently dropped.
   const colExprs: string[] = [];
   for (const agg of aggFields) {
     const func = agg.aggregateFunction!.toUpperCase();
@@ -347,54 +331,52 @@ function renderChildSelect(
   const child = embed.child;
   const childQi = child.target;
 
-  // BUG FIX (#CC5): reject mixed aggregate / non-aggregate child
-  // selects. The child subquery path has no GROUP BY or HAVING
-  // rendering, so `rel(category,count())` would build
-  // `SELECT category, COUNT(*) FROM rel ...` — invalid SQL. The
-  // planner already splits pure-aggregate children into the
-  // correlated-subquery path (`isAggregate`); what is left here is
-  // either all-plain or mixed. Reject the mixed case up front.
   const childHasAggregate = child.select.some(
     (s) => s.type === 'field' && s.aggregateFunction !== undefined,
   );
-  const childHasPlain = child.select.some(
-    (s) => s.type === 'field' && s.aggregateFunction === undefined,
-  );
-  if (childHasAggregate && childHasPlain) {
+
+  // An aggregate child with nested embeds cannot be expressed: GROUP
+  // BY would have to include every nested-embed lateral output, but
+  // those are JSON aggregates of un-grouped rows. Reject explicitly.
+  if (childHasAggregate && child.embeds.length > 0) {
     return err(
-      parseErrors.notImplemented(
-        `mixed aggregate and plain columns in embed "${embed.alias}" are not supported`,
-      ),
-    );
-  }
-  // A pure-aggregate child that somehow reached this branch (instead
-  // of renderAggregateEmbed) is a planner invariant break.
-  if (childHasAggregate) {
-    return err(
-      parseErrors.notImplemented(
-        `aggregate child embed "${embed.alias}" must be routed through the scalar subquery path`,
+      parseErrors.queryParam(
+        'select',
+        `aggregate columns in embed "${embed.alias}" cannot be combined with nested embeds`,
       ),
     );
   }
 
-  // BUG FIX (#CC4): `renderSelectProjection` falls back to
-  // `child.*` when `child.select` is empty — which happens for an
-  // embed-only inline select like `authors(books(id))` where the
-  // child select is just the nested embed. That silently projected
-  // every column of the parent embed. Build the projection ourselves
-  // so that an embed-only child emits only the nested embed columns.
+  // Render nested embeds (none if aggregate, by the check above).
   const nestedResult = renderEmbeds(childQi, child.embeds, counter, builder);
   if (!nestedResult.ok) return nestedResult;
 
   let projectionSql: string;
+  let groupBySql = '';
   if (child.select.length === 0) {
+    // `renderSelectProjection` falls back to `child.*` when the select
+    // is empty. For an embed-only inline select like
+    // `authors(books(id))`, that would silently project every column
+    // of the parent embed — emit only the nested-embed columns.
     if (nestedResult.value.columns.length > 0) {
-      // Embed-only child: project ONLY the nested embed columns.
       projectionSql = nestedResult.value.columns.join(', ');
     } else {
-      // No explicit select and no nested embeds — implicit `*`.
       projectionSql = `${qualifiedIdentifierToSql(childQi)}.*`;
     }
+  } else if (childHasAggregate) {
+    // Mixed aggregate + plain: render the projection through the
+    // grouping-aware variant and emit a matching GROUP BY clause built
+    // from the same field expressions, so the GROUP BY columns are
+    // byte-identical to the projected ones (no rebound JSON-path
+    // parameters, no "column must appear in GROUP BY" surprises).
+    const projection = renderSelectProjectionAndGrouping(
+      childQi,
+      child.select,
+      builder,
+    );
+    if (!projection.ok) return projection;
+    projectionSql = projection.value.projectionSql;
+    groupBySql = renderGroupByFromProjection(projection.value);
   } else {
     const projectionResult = renderSelectProjection(childQi, child.select, builder);
     if (!projectionResult.ok) return projectionResult;
@@ -434,12 +416,9 @@ function renderChildSelect(
   // directly (they were stripped of their leading path segments at
   // planning time).
   //
-  // BUG FIX (#HH8): pass the nested embeds' alias map so a nested
-  // related order (`?embed.order=nested(col).asc`) resolves to the
-  // nested LATERAL alias instead of bouncing off a generic "related
-  // order not supported in this context" error. The planner has
-  // already validated that `nested` is a to-one embed rooted inside
-  // this child.
+  // Pass the nested embeds' alias map so a nested related order
+  // (`?embed.order=nested(col).asc`) resolves to the nested LATERAL
+  // alias.
   const orderResult = renderChildOrder(
     child,
     childQi,
@@ -455,9 +434,10 @@ function renderChildSelect(
   const nestedJoinSuffix =
     nestedResult.value.joins.length > 0 ? ' ' + nestedResult.value.joins.join(' ') : '';
 
+  const groupByPart = groupBySql ? ' ' + groupBySql : '';
   const sql =
     `SELECT ${projectionSql} ${fromClause}${nestedJoinSuffix}` +
-    `${whereStr}${orderStr ? ' ' + orderStr : ''}${limitStr ? ' ' + limitStr : ''}`;
+    `${whereStr}${groupByPart}${orderStr ? ' ' + orderStr : ''}${limitStr ? ' ' + limitStr : ''}`;
   return ok(sql.trim());
 }
 
@@ -478,18 +458,8 @@ function renderJoinCondition(
   child: QualifiedIdentifier,
   card: Cardinality,
 ): Result<string, CloudRestError> {
-  // BUG FIX (#CC1): M2M used to return an empty string, which was
-  // later filtered out — a parent's embed on a many-to-many
-  // relationship would silently emit an uncorrelated child subquery
-  // that pulled every child row for every parent. That is a
-  // severe correctness bug. Surface an explicit "not implemented"
-  // error until the junction-table join path is actually wired.
   if (card.type === 'M2M') {
-    return err(
-      parseErrors.notImplemented(
-        `many-to-many embed on "${child.name}" is not yet supported — use a spread embed or an explicit junction-table query`,
-      ),
-    );
+    return ok(renderM2MJoinCondition(parent, child, card.junction));
   }
   const parentSql = qualifiedIdentifierToSql(parent);
   const childSql = qualifiedIdentifierToSql(child);
@@ -498,4 +468,34 @@ function renderJoinCondition(
       `${childSql}.${escapeIdent(childCol)} = ${parentSql}.${escapeIdent(parentCol)}`,
   );
   return ok(conditions.join(' AND '));
+}
+
+/**
+ * M2M correlation: emit `EXISTS (SELECT 1 FROM <junction> WHERE
+ * junction.<jcol> = parent.<pcol> AND junction.<jcol> = child.<ccol>)`.
+ *
+ * `sourceColumns[i]` is `[parentRefCol, junctionCol]`; `targetColumns[i]`
+ * is `[childRefCol, junctionCol]`. Both pairs reference the *same*
+ * junction row, so the predicate ties parent → junction → child in one
+ * correlated subquery the planner can splice into the existing
+ * `WHERE` assembly without changing the lateral wrapper shape.
+ */
+function renderM2MJoinCondition(
+  parent: QualifiedIdentifier,
+  child: QualifiedIdentifier,
+  junction: Extract<Cardinality, { type: 'M2M' }>['junction'],
+): string {
+  const parentSql = qualifiedIdentifierToSql(parent);
+  const childSql = qualifiedIdentifierToSql(child);
+  const junctionSql = qualifiedIdentifierToSql(junction.table);
+  const sourceConds = junction.sourceColumns.map(
+    ([parentCol, junctionCol]) =>
+      `${junctionSql}.${escapeIdent(junctionCol)} = ${parentSql}.${escapeIdent(parentCol)}`,
+  );
+  const targetConds = junction.targetColumns.map(
+    ([childCol, junctionCol]) =>
+      `${junctionSql}.${escapeIdent(junctionCol)} = ${childSql}.${escapeIdent(childCol)}`,
+  );
+  const conds = [...sourceConds, ...targetConds].join(' AND ');
+  return `EXISTS (SELECT 1 FROM ${junctionSql} WHERE ${conds})`;
 }

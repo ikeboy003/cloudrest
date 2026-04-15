@@ -1,13 +1,8 @@
 // `handleSchemaRoot` — `GET /` returns the OpenAPI document.
 //
-// Stage 10 scope: return a minimal stub that enumerates the
-// tables and routines in the schema cache. The full OpenAPI shape
-// lands later — Stage 10 just needs the endpoint wired so clients
-// don't get `PGRST501 Not implemented` on `/`.
-//
-// INVARIANT (CONSTITUTION §1.8): the schema-root response does NOT
-// go through `runQuery`. It's a pure function of the in-memory
-// schema cache.
+// Returns a minimal stub that enumerates the tables and routines in
+// the schema cache. The schema-root response does NOT go through
+// `runQuery` — it's a pure function of the in-memory schema cache.
 
 import { err, ok, type Result } from '@/core/result';
 import type { CloudRestError } from '@/core/errors';
@@ -56,7 +51,7 @@ export async function handleSchemaRoot(
 
 /**
  * Build a minimal OpenAPI stub enumerating every exposed table and
- * routine. Stage 18 fills in real paths / parameters / responses.
+ * routine.
  */
 function buildOpenApiStub(
   context: HandlerContext,

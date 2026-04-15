@@ -1,14 +1,9 @@
 // ReadPlan — typed description of a read query, handed from the planner
 // to the read builder.
 //
-// INVARIANT: Every feature of a read query is a FIELD on ReadPlan, not a
-// post-hoc SQL rewrite. CONSTITUTION §1.1 and §1.6.
-//
-// In particular: search, vector, and distinct are first-class plan
-// fields. The old code applied them by string surgery on an already-
-// built `query.sql`; the rewrite emits them as part of the single
-// render pass in builder/read.ts. See critique findings #2, #12, #72,
-// #77, #78.
+// Every feature of a read query is a FIELD on ReadPlan, not a post-hoc
+// SQL rewrite. Search, vector, and distinct are first-class plan fields
+// emitted as part of the single render pass in builder/read.ts.
 
 import type { QualifiedIdentifier } from '@/http/request';
 import type { CountPreference } from '@/http/preferences';
@@ -28,12 +23,12 @@ import type { EmbedNode } from './embed-plan';
 export type VectorOp = 'l2' | 'cosine' | 'inner_product' | 'l1';
 
 /**
- * Full-text search. Stage 6 renders this as part of the WHERE clause
- * (via `to_tsvector(...) @@ websearch_to_tsquery(...)`), binds the term
- * and the language through `SqlBuilder.addParam`, and — when requested —
+ * Full-text search. Rendered as part of the WHERE clause (via
+ * `to_tsvector(...) @@ websearch_to_tsquery(...)`), binds the term and
+ * the language through `SqlBuilder.addParam`, and — when requested —
  * also adds a `ts_rank(...) AS relevance` projection.
  *
- * SECURITY (#10): the language token goes through addParam, not inlined.
+ * SECURITY: the language token goes through addParam, not inlined.
  */
 export interface SearchPlan {
   readonly term: string;
@@ -46,13 +41,13 @@ export interface SearchPlan {
 }
 
 /**
- * Vector similarity search. Stage 6 renders this as a distance
- * expression, selects it as `distance`, and uses it as the primary
- * ORDER BY (unless a user-supplied ORDER BY takes precedence — in
- * which case `distance` is appended as a tie-breaker).
+ * Vector similarity search. Rendered as a distance expression, selected
+ * as `distance`, and used as the primary ORDER BY (unless a
+ * user-supplied ORDER BY takes precedence — in which case `distance`
+ * is appended as a tie-breaker).
  *
- * SECURITY (#77, #78): the vector value is bound through
- * SqlBuilder.addParam; no post-hoc `$N` rewriting ever happens.
+ * SECURITY: the vector value is bound through SqlBuilder.addParam; no
+ * post-hoc `$N` rewriting ever happens.
  */
 export interface VectorPlan {
   readonly queryVector: readonly number[];
@@ -128,4 +123,7 @@ export interface ReadPlan {
    * aggregates, or correlated scalar subqueries (for aggregate embeds).
    */
   readonly embeds: readonly EmbedNode[];
+
+  /** PostGIS geo column kinds detected in the plan. */
+  readonly geoKinds?: ReadonlyMap<string, string>;
 }

@@ -1,23 +1,21 @@
 // Per-request auth prelude: `SET LOCAL ROLE` + `request.jwt.*` GUCs.
 //
-// INVARIANT (CONSTITUTION §6.2): the REST path and the realtime
-// poller both send the caller's resolved role and JWT claims through
-// the same prelude. `context.auth.role` and `context.auth.claims`
-// land in `SET LOCAL ROLE` and `set_config('request.jwt.claim.*',
-// ..., true)` respectively — same shape PostgREST uses so RLS
-// policies written against PostgREST work against CloudREST
-// unchanged.
+// The REST path and the realtime poller both send the caller's
+// resolved role and JWT claims through the same prelude.
+// `context.auth.role` and `context.auth.claims` land in
+// `SET LOCAL ROLE` and `set_config('request.jwt.claim.*', ..., true)`
+// respectively — same shape PostgREST uses so RLS policies written
+// against PostgREST work against CloudREST unchanged.
 //
-// INVARIANT (CONSTITUTION §1.3): claim keys and values reach SQL via
-// `set_config($1, $2, true)` with BOUND parameters. No user-
-// controlled string is inlined. The only inlined value is the
-// resolved role identifier, which is double-quote-escaped via
-// `escapeIdent` — the same primitive the rest of the builder uses
-// for schema-cache identifiers. `SET LOCAL ROLE` does NOT accept
-// bind parameters at the protocol level; this is the one place in
-// the executor where an identifier gets interpolated, so the
-// role-validation rules (config.database.anonRole, JWT claim
-// walker) are the gate.
+// Claim keys and values reach SQL via `set_config($1, $2, true)` with
+// BOUND parameters. No user-controlled string is inlined. The only
+// inlined value is the resolved role identifier, which is
+// double-quote-escaped via `escapeIdent` — the same primitive the
+// rest of the builder uses for schema-cache identifiers.
+// `SET LOCAL ROLE` does NOT accept bind parameters at the protocol
+// level; this is the one place in the executor where an identifier
+// gets interpolated, so the role-validation rules
+// (config.database.anonRole, JWT claim walker) are the gate.
 //
 // SECURITY: `escapeIdent` doubles internal quotes. A role name
 // containing `"` still round-trips correctly. The role cannot
@@ -60,14 +58,14 @@ export function buildAuthPrelude(auth: AuthClaims): AuthPrelude {
 
   const pairs: [string, string][] = [];
 
-  // COMPAT: PostgREST sets `request.jwt.claims` to the JSON-encoded
+  // PostgREST sets `request.jwt.claims` to the JSON-encoded
   // payload so RLS can read `current_setting('request.jwt.claims',
   // true)::jsonb ->> 'sub'`.
   if (Object.keys(auth.claims).length > 0) {
     pairs.push(['request.jwt.claims', JSON.stringify(auth.claims)]);
   }
 
-  // COMPAT: PostgREST also splits out scalar top-level claims as
+  // PostgREST also splits out scalar top-level claims as
   // `request.jwt.claim.<key>` so older policies written against
   // individual GUCs keep working. Only string/number/boolean values
   // are exposed; objects/arrays stay in the full `claims` blob above.

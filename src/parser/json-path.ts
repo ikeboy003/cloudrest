@@ -11,16 +11,13 @@
 //   `col->'a->b'`       -> arrow, key `a->b` (quoted key may contain arrows)
 //   `col->'a'->>'b'`    -> two segments
 //
-// BUG FIX (#18): parseField used to never fail. It now returns a Result
-// and rejects:
+// parseField returns a Result and rejects:
 //   - `data->`      (dangling arrow with no key)
 //   - `->key`       (arrow with no field name)
 //   - unterminated quoted keys
 //
-// BUG FIX (#17): quoted numeric keys (`data->"0"`) now stay as `key`
-// operands; only UNQUOTED digit sequences become `idx` operands. The old
-// code stripped quotes first and then tested `^\d+$`, losing the
-// distinction.
+// Quoted numeric keys (`data->"0"`) stay as `key` operands; only
+// UNQUOTED digit sequences become `idx` operands.
 
 import { err, ok, type Result } from '@/core/result';
 import { parseErrors, type CloudRestError } from '@/core/errors';
@@ -33,12 +30,8 @@ export function parseField(raw: string): Result<Field, CloudRestError> {
 
   // Fast path: no arrow at all.
   if (!raw.includes('->')) {
-    // BUG FIX (#A): the old fast path returned the raw string verbatim
-    // as the column name, so filter/order/having/logic would accept
-    // garbage like `a;DROP`, `a b`, `max(x)`, backticks, and SQL
-    // comments. Select has its own validator, but the shared parseField
-    // did not — now the plain-name case is gated by the same identifier
-    // rule (letters/digits/underscore, non-digit first char) or `*`.
+    // The plain-name case is gated by the identifier rule
+    // (letters/digits/underscore, non-digit first char) or `*`.
     if (!isValidPlainFieldName(raw)) {
       return err(
         parseErrors.queryParam('field', `invalid field name: "${raw}"`),
@@ -51,9 +44,7 @@ export function parseField(raw: string): Result<Field, CloudRestError> {
   if (!segmentsResult.ok) return segmentsResult;
   const segments = segmentsResult.value;
 
-  // BUG FIX (#18): `->key` scans as one segment because the arrow is
-  // at position 0 and no `current` gets pushed ahead of it. Detect by
-  // inspecting the first segment for a leading arrow.
+  // `->key` with no preceding field name is invalid.
   const first = segments[0]!;
   if (first.startsWith('->')) {
     return err(
@@ -72,15 +63,13 @@ export function parseField(raw: string): Result<Field, CloudRestError> {
       parseErrors.queryParam('field', `missing field name before JSON path: "${raw}"`),
     );
   }
-  // BUG FIX (#A): the head of a JSON-path field must also be a plain
-  // identifier. `max(x)->key` and `a b->key` must not slip through.
+  // The head of a JSON-path field must be a plain identifier.
   if (!isValidPlainFieldName(name)) {
     return err(
       parseErrors.queryParam('field', `invalid field name: "${name}"`),
     );
   }
-  // BUG FIX (#AA2): `*->key` used to parse as "wildcard traverses JSON",
-  // which is not meaningful. The wildcard is only valid as a bare
+  // `*->key` is not meaningful — the wildcard is only valid as a bare
   // field reference.
   if (name === '*') {
     return err(
@@ -104,10 +93,8 @@ export function parseField(raw: string): Result<Field, CloudRestError> {
       );
     }
 
-    // BUG FIX (#B): an operand that STARTS with a quote but has
-    // trailing junk after the closing quote (`data->"a"b`) must not
-    // silently become the literal key `"a"b`. Detect the shape before
-    // the quoted / unquoted fork.
+    // An operand that STARTS with a quote but has trailing junk after
+    // the closing quote (`data->"a"b`) is malformed.
     if (
       (rawOperand.startsWith('"') || rawOperand.startsWith("'"))
       && !isQuoted(rawOperand)
@@ -132,16 +119,11 @@ export function parseField(raw: string): Result<Field, CloudRestError> {
       );
     }
 
-    // BUG FIX (#17): quoted numeric keys remain keys.
+    // Quoted numeric keys remain keys (not array indexes).
     const isUnquotedInteger = !wasQuoted && /^\d+$/.test(rawOperand);
-    // BUG FIX (#AA18): an unquoted JSON path key must be a plain SQL
-    // identifier (or a bare non-negative integer for array indexes).
-    // The old grammar accepted anything scanArrowSegments didn't stop
-    // at, so `data->a b`, `data->a;DROP`, and `data->a)bad` all
-    // parsed as valid keys. The builder binds keys safely, but the
-    // grammar should still reject shapes that could only have been
-    // typos or injection attempts — users wanting arbitrary keys
-    // should quote them.
+    // An unquoted JSON path key must be a plain SQL identifier (or a
+    // bare non-negative integer for array indexes). Users wanting
+    // arbitrary keys should quote them.
     if (!wasQuoted && !isUnquotedInteger) {
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(rawOperand)) {
         return err(

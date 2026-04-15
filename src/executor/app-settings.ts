@@ -1,9 +1,8 @@
 // Per-request GUC rendering for `config.database.appSettings` and
 // `config.database.extraSearchPath`.
 //
-// INVARIANT (CONSTITUTION §1.3): values reach SQL through bind
-// parameters, never via string concatenation. The old code inlined
-// everything; the rewrite uses `set_config($1, $2, true)` with two
+// INVARIANT: values reach SQL through bind parameters, never via
+// string concatenation. `set_config($1, $2, true)` with two
 // bound params per setting, so a hostile key ending in `')--` cannot
 // terminate the literal.
 //

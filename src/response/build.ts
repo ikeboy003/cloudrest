@@ -4,7 +4,7 @@
 // returned rows and GUCs, and this module shapes them into the
 // "domain response" an HTTP-level finalizer can serialize.
 //
-// INVARIANT (CONSTITUTION §1.6): builders never mutate a built SQL
+// INVARIANT: builders never mutate a built SQL
 // string. Response construction only reads `QueryResult`; it never
 // calls back into the builder.
 
@@ -83,9 +83,8 @@ export function buildReadResponse(
 //   - `A-B/N`     when there are rows (A = offset, B = offset+pageTotal-1);
 //   - `A-B/(star)` when no count was requested (null total).
 //
-// CONSTITUTION / PostgREST compat: the "/-1" form the old code could
-// emit for `reltuples = -1` is collapsed to "/(star)" via the null
-// clamp in `buildReadResponse`.
+// PostgREST compat: the "/-1" form for `reltuples = -1` is collapsed
+// to "/(star)" via the null clamp in `buildReadResponse`.
 function buildContentRange(
   plan: ReadPlan,
   pageTotal: number,

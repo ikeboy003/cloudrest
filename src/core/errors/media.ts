@@ -1,6 +1,6 @@
 // Media type errors — PGRST106, PGRST107, PGRST116.
 //
-// COMPAT: PostgREST returns 406 for unacceptable Accept headers and for
+// PostgREST returns 406 for unacceptable Accept headers and for
 // the singular-object coercion failure. PGRST106 ("schema not exposed")
 // also lives here because the failure surfaces during content negotiation
 // via Accept-Profile.

@@ -1,8 +1,6 @@
 // Schema cache: routine (function) definitions used for `/rpc/*`.
 //
-// INVARIANT (CONSTITUTION §1.5): routine records are typed, not bags
-// of strings. The old code's `pd*` / `pp*` Haskell-record prefixes
-// are dropped — the rewrite uses plain `name`, `schema`, `params`.
+// INVARIANT: routine records are typed, not bags of strings.
 //
 // INVARIANT (critique #48): the routine lookup is deterministic.
 // Ambiguous routines (multiple overloads with the same name but

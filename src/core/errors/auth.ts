@@ -4,7 +4,7 @@
 // PGRST303 (expired/claim error) matters for Bearer challenge headers — see
 // response/finalize.ts. PGRST302 is the "anonymous access disabled" signal.
 //
-// COMPAT: PostgREST uses these codes and status 401 across the board, with
+// PostgREST uses these codes and status 401 across the board, with
 // PGRST300 as a server misconfiguration (500) when the JWT secret is missing.
 
 import { makeError, type CloudRestError } from './types';
@@ -50,8 +50,7 @@ export const authErrors = {
     });
   },
 
-  // SECURITY: Explicit alg=none rejection — added in stage 11.
-  // See CONSTITUTION §5.1.
+  // SECURITY: Explicit alg=none rejection.
   algNotAllowed(alg: string): CloudRestError {
     return makeError({
       code: 'PGRST304',
@@ -60,8 +59,7 @@ export const authErrors = {
     });
   },
 
-  // SECURITY: JWKS URL scheme allowlist — added in stage 11.
-  // See CONSTITUTION §5.5.
+  // SECURITY: JWKS URL scheme allowlist.
   jwksSchemeNotAllowed(scheme: string): CloudRestError {
     return makeError({
       code: 'PGRST305',

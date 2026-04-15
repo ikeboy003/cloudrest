@@ -1,19 +1,7 @@
 // Read planner — turns a ParsedQueryParams + SchemaCache into a ReadPlan.
 //
-// INVARIANT (CONSTITUTION §1.5): the planner reads schema knowledge,
-// validates column references, and emits a typed ReadPlan. It does not
-// render SQL.
-//
-// Stage 6a scope: table resolution, root filter/logic/order column
-// validation, distinct column validation, first-class search/vector/
-// distinct wiring.
-//
-// Stage 6b extends that to every query-param shape the parser emits:
-//  - embed resolution with relationship lookup, alias/hint, join-type;
-//  - embedded filter/logic/order attached to the right subtree;
-//  - ?search= / ?search.columns= / ?search.language= → SearchPlan;
-//  - ?vector= / ?vector.column= / ?vector.op=   → VectorPlan;
-//  - aggregate column validation (select=avg(rating) requires `rating`).
+// The planner reads schema knowledge, validates column references, and
+// emits a typed ReadPlan. It does not render SQL.
 
 import { err, ok, type Result } from '@/core/result';
 import {
@@ -48,7 +36,7 @@ export interface PlanReadInput {
   readonly parsed: ParsedQueryParams;
   readonly preferences: Preferences;
   readonly schema: SchemaCache;
-  /** Chosen output media type. Stage 3 (http/media/negotiate) picks this. */
+  /** Chosen output media type. */
   readonly mediaType: MediaTypeId;
   /**
    * Top-level range, already intersected with any `?limit=` override
@@ -71,10 +59,9 @@ export interface PlanReadInput {
     readonly includeRank: boolean;
   };
   /**
-   * Maximum embed nesting depth (bug #EE7). Mirrors
-   * `limits.maxEmbedDepth` from the runtime config. Optional for
-   * backwards compatibility — callers that omit it get the default
-   * `MAX_EMBED_DEPTH` constant.
+   * Maximum embed nesting depth. Mirrors `limits.maxEmbedDepth` from
+   * the runtime config. Optional for backwards compatibility — callers
+   * that omit it get the default `MAX_EMBED_DEPTH` constant.
    */
   readonly maxEmbedDepth?: number;
   /**
@@ -83,9 +70,6 @@ export interface PlanReadInput {
    * having / embed shape that contains an aggregate function
    * BEFORE building SQL, so PGRST123 surfaces cleanly instead of
    * a confusing downstream error.
-   *
-   * BUG FIX (#HH3): the config field existed but `planRead` never
-   * consulted it — aggregates were always accepted.
    *
    * Optional for older callers; treated as `true` (= aggregates
    * allowed) when omitted.
@@ -110,12 +94,11 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
 
   // ----- Aggregates-enabled gate --------------------------------------
   //
-  // BUG FIX (#HH3): when the operator sets `DB_AGGREGATES_ENABLED=false`
-  // every aggregate shape — root aggregate select items, HAVING
-  // clauses, and embed aggregate select items — must be refused at
-  // plan time with PGRST123. The old planner silently accepted them
-  // and only the builder would have caught a subset. `undefined`
-  // (older callers) defaults to "allowed" for backwards compatibility.
+  // When the operator sets `DB_AGGREGATES_ENABLED=false` every
+  // aggregate shape — root aggregate select items, HAVING clauses,
+  // and embed aggregate select items — must be refused at plan time
+  // with PGRST123. `undefined` (older callers) defaults to "allowed"
+  // for backwards compatibility.
   const aggregatesAllowed = input.aggregatesEnabled !== false;
   if (!aggregatesAllowed) {
     // HAVING is always an aggregate shape.
@@ -155,10 +138,8 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
   // Related-order terms (`order=author(name).desc`) are validated inside
   // planEmbeds once the embed set is known.
   //
-  // BUG FIX (#DD5): the old loop skipped `term.field.name === '*'`,
-  // letting `?order=*.asc` through as a valid plan. The renderer
-  // then emitted `ORDER BY "public"."books".*`, which is not legal
-  // SQL. Reject the wildcard here so the user sees PGRST100.
+  // Reject wildcard in ORDER BY — `ORDER BY "public"."books".*` is
+  // not legal SQL.
   for (const term of rootOrder) {
     if (term.relation !== undefined) continue;
     if (term.field.name === '*') {
@@ -181,13 +162,8 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
   }
 
   // ----- HAVING column validation --------------------------------------
-  // BUG FIX (#EE3): the old planner handed `input.parsed.having` to
-  // the builder without validating any of its field references. A
-  // request like `select=count()&having=sum(does_not_exist).gt.1`
-  // made it all the way to the SQL layer before failing. HAVING
-  // clauses reference root-table columns (aggregates cannot target
-  // embeds here); validate each one the same way root select
-  // aggregates are validated.
+  // HAVING clauses reference root-table columns; validate each one
+  // the same way root select aggregates are validated.
   for (const clause of input.parsed.having) {
     if (!clause.field) continue; // count() with no field is fine.
     const name = clause.field.name;
@@ -245,11 +221,9 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
   }
 
   // ----- Search --------------------------------------------------------
-  // BUG FIX (#EE5): prefer the parser-threaded value on
-  // `parsed.search`. Fall back to the side-channel `input.search`
-  // for callers that haven't been migrated yet (the older contract
-  // took raw search params out of band); remove the fallback once
-  // every handler uses parseQueryParams.
+  // Prefer the parser-threaded value on `parsed.search`. Fall back to
+  // the side-channel `input.search` for callers that haven't been
+  // migrated yet.
   const searchParams = input.parsed.search ?? input.search ?? null;
   const searchResult = planSearch(
     {
@@ -345,7 +319,7 @@ function collectNonRootOrder(
  * Recursive walk over the raw parser select list: return true if
  * any item — at any nesting depth — carries an aggregate function.
  * Used by the `DB_AGGREGATES_ENABLED=false` gate so nested embeds
- * like `select=authors(avg(rating))` also fail early (bug #HH3).
+ * like `select=authors(avg(rating))` also fail early.
  */
 function hasAggregateSelectItem(
   items: readonly SelectItem[],
@@ -392,12 +366,9 @@ function validateFilterColumn(
   filter: Filter,
 ): Result<null, CloudRestError> {
   const name = filter.field.name;
-  // BUG FIX (#HH9): the old check treated `*` as "OK", inherited
-  // from the select-side validator where wildcard is legal. It is
-  // NOT legal in a filter — there is no column named `*` to
-  // compare against. The builder catches it defensively but the
-  // planner is the right place to refuse it, so the error comes
-  // from the layer that knows the request shape.
+  // Wildcard `*` is not legal in a filter — there is no column
+  // named `*` to compare against. Refuse at plan time so the error
+  // comes from the layer that knows the request shape.
   if (name === '*') {
     return err(
       parseErrors.queryParam(

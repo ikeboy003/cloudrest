@@ -1,16 +1,16 @@
 // Schema introspection SQL queries.
 //
-// COMPAT: these queries mirror PostgREST's `SchemaCache.hs` pg_catalog
+// These queries mirror PostgREST's `SchemaCache.hs` pg_catalog
 // queries. A row-for-row rewrite would drift from PostgREST's
 // behavior over time, so the queries are a verbatim port and only
 // the row-parsing layer is rewritten against the rewrite's typed
 // `Table` / `Relationship` / `Routine` shapes.
 //
-// INVARIANT (CONSTITUTION §1.3): the exposed schemas are bound as
+// INVARIANT: the exposed schemas are bound as
 // `$1::regnamespace[]`, never inlined. The planner and schema
 // coordinator pass `config.database.schemas` as a bound parameter.
 //
-// INVARIANT (CONSTITUTION §13.3): these queries are executed through
+// INVARIANT: these queries are executed through
 // `runQuery`, not a bare `pg.Client`. See `schema/introspect.ts`.
 
 // Recursive CTE shared across queries — resolves domain base types.

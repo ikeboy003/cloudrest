@@ -75,6 +75,7 @@ export interface Env {
   CACHE_TABLE_TTLS?: string;
   REALTIME_ENABLED?: string;
   REALTIME_POLL_INTERVAL_MS?: string;
+  REALTIME_MAX_BATCH_SIZE?: string;
   WEBHOOKS?: string;
   WEBHOOK_SECRET?: string;
   QUERY_PRESETS?: string;

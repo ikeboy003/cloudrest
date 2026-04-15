@@ -1,15 +1,6 @@
 // CORS — preflight handling + `Access-Control-*` response headers.
 //
-// STAGE 16 FIXES (critiques #54, #55):
-//   #54 — preflight requests return 403 when `cors.allowedOrigins`
-//         is null. The old code's "missing config means allow" was
-//         a security mis-default.
-//   #55 — `Vary: Origin` is emitted on every non-wildcard response
-//         regardless of the `credentials` flag. Without Vary,
-//         intermediary caches serve the wrong Allow-Origin to the
-//         wrong client.
-//
-// INVARIANT (CONSTITUTION §10.1): CORS is OPT-IN. A deployment
+// INVARIANT: CORS is OPT-IN. A deployment
 // with no `CORS_ALLOWED_ORIGINS` env var gets NO cross-origin
 // access — every preflight returns 403.
 

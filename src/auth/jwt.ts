@@ -14,9 +14,8 @@
 //           replay" CPU-burn where an attacker re-sends a
 //           malformed token on every request.
 //
-// NOTE: Stage 8a's exported sync `jwtCacheGet` / `jwtCacheSet`
-// helpers are replaced with async equivalents that take care of
-// the SHA-256 hashing. Callers must `await` them.
+// The exported `jwtCacheGet` / `jwtCacheSet` helpers are async and
+// handle SHA-256 hashing internally. Callers must `await` them.
 
 import { base64ToBuffer } from './base64';
 import { getJwksKey } from './jwks';
