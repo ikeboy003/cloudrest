@@ -31,6 +31,8 @@ export function pickRoute(action: Action): RouteHandler | null {
     case 'schemaRead':
     case 'schemaInfo':
       return handleSchemaRoot;
+    case 'batchDispatch':
+      return null;
     // Not yet implemented:
     case 'relationInfo':
     case 'routineInfo':

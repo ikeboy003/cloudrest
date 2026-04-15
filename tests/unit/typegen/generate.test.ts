@@ -192,4 +192,29 @@ describe('generateTypeScript — enums and vectors', () => {
     });
     expect(ts).toContain("status: 'todo' | 'doing' | 'done';");
   });
+
+  it('escapes quotes and backslashes in enum literal unions', () => {
+    const schemaWithEnum = makeSchema([
+      {
+        name: 'tasks',
+        columns: [
+          {
+            name: 'status',
+            type: 'status_enum',
+            nullable: false,
+          },
+        ],
+      },
+    ]);
+    const tasks = [...schemaWithEnum.tables.values()][0]!;
+    (tasks.columns.get('status') as { enumValues: readonly string[] }).enumValues =
+      ['todo', "o'clock", 'back\\slash'];
+
+    const ts = generateTypeScript({
+      schema: schemaWithEnum,
+      tableName: 'tasks',
+      selectItems: parse('status'),
+    });
+    expect(ts).toContain("status: 'todo' | 'o\\'clock' | 'back\\\\slash';");
+  });
 });

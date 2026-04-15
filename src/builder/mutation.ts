@@ -29,8 +29,11 @@ import type {
   DeletePlan,
   InsertPlan,
   MutationPlan,
+  NestedInsertChild,
   UpdatePlan,
 } from '@/planner/mutation-plan';
+import type { EmbedNode } from '@/planner/embed-plan';
+import type { Cardinality } from '@/schema/relationship';
 import { renderFilter, renderLogicTree } from './fragments';
 import {
   escapeIdent,
@@ -97,7 +100,48 @@ function buildInsert(plan: InsertPlan): Result<BuiltQuery, CloudRestError> {
       `${conflictClause} ${renderReturning(plan)})`;
   }
 
+  cte = appendNestedInsertCtes(cte, plan.nestedInserts ?? []);
+
   return finalizeBuild(plan, cte, builder);
+}
+
+function appendNestedInsertCtes(
+  cte: string,
+  nestedInserts: readonly NestedInsertChild[],
+): string {
+  if (nestedInserts.length === 0) return cte;
+  return `${cte}${nestedInserts.map(renderNestedInsertCte).join('')}`;
+}
+
+function renderNestedInsertCte(
+  child: NestedInsertChild,
+  index: number,
+): string {
+  const childTableSql = qualifiedIdentifierToSql(child.target);
+  const insertColumns = [child.childFkColumn, ...child.columns.map((c) => c.name)];
+  const insertColumnSql = insertColumns.map(escapeIdent).join(', ');
+  const parentRefSql = `pgrst_source.${escapeIdent(child.parentRefColumn)}`;
+
+  if (child.columns.length === 0) {
+    return (
+      `, pgrst_child_${index} AS (` +
+      `INSERT INTO ${childTableSql} (${insertColumnSql}) ` +
+      `SELECT ${parentRefSql} FROM pgrst_source RETURNING 1)`
+    );
+  }
+
+  const childColumnSql = child.columns.map((c) => `c.${escapeIdent(c.name)}`).join(', ');
+  const typedCols = child.columns
+    .map((c) => `${escapeIdent(c.name)} ${c.type}`)
+    .join(', ');
+  const bodyLiteral = inlineJsonbLiteral(child.rawBody);
+  return (
+    `, pgrst_child_${index} AS (` +
+    `INSERT INTO ${childTableSql} (${insertColumnSql}) ` +
+    `SELECT ${parentRefSql}, ${childColumnSql} ` +
+    `FROM pgrst_source, jsonb_to_recordset(${bodyLiteral}) AS c(${typedCols}) ` +
+    `RETURNING 1)`
+  );
 }
 
 function renderOnConflict(plan: InsertPlan): string {
@@ -237,6 +281,19 @@ function finalizeBuild(
     return ok(builder.toBuiltQuery());
   }
 
+  if (
+    plan.kind === 'insert' &&
+    plan.graphReturnEmbeds !== undefined &&
+    plan.graphReturnEmbeds.length > 0
+  ) {
+    return finalizeGraphReturnBuild(
+      plan,
+      cte,
+      builder,
+      plan.graphReturnEmbeds as readonly EmbedNode[],
+    );
+  }
+
   const bodyExpr =
     plan.returnPreference === 'full'
       ? `coalesce(json_agg(pgrst_source), '[]')::text`
@@ -256,6 +313,120 @@ function finalizeBuild(
 
   builder.write(wrapper);
   return ok(builder.toBuiltQuery());
+}
+
+function finalizeGraphReturnBuild(
+  plan: InsertPlan,
+  cte: string,
+  builder: SqlBuilder,
+  embeds: readonly EmbedNode[],
+): Result<BuiltQuery, CloudRestError> {
+  const rendered = renderMutationGraphEmbeds(embeds);
+  if (!rendered.ok) return rendered;
+
+  const bodyExpr =
+    plan.returnPreference === 'full'
+      ? `coalesce(json_agg(t), '[]')::text`
+      : `'[]'::text`;
+  const locationExpr = renderLocationExpr(plan);
+  const columns = rendered.value.columns.length > 0
+    ? `, ${rendered.value.columns.join(', ')}`
+    : '';
+  const joins = rendered.value.joins.length > 0
+    ? ` ${rendered.value.joins.join(' ')}`
+    : '';
+  const fromExpr = `(SELECT pgrst_source.*${columns} FROM pgrst_source${joins}) t`;
+
+  const wrapper =
+    `${cte} SELECT ` +
+    `null::bigint AS total_result_set, ` +
+    `pg_catalog.count(t) AS page_total, ` +
+    `${locationExpr} AS header, ` +
+    `${bodyExpr} AS body, ` +
+    `nullif(current_setting('response.headers', true), '') AS response_headers, ` +
+    `nullif(current_setting('response.status',  true), '') AS response_status ` +
+    `FROM ${fromExpr}`;
+
+  builder.write(wrapper);
+  return ok(builder.toBuiltQuery());
+}
+
+interface RenderedMutationGraphEmbeds {
+  readonly columns: readonly string[];
+  readonly joins: readonly string[];
+}
+
+function renderMutationGraphEmbeds(
+  embeds: readonly EmbedNode[],
+): Result<RenderedMutationGraphEmbeds, CloudRestError> {
+  const columns: string[] = [];
+  const joins: string[] = [];
+  embeds.forEach((embed, index) => {
+    const alias = `pgrst_${index + 1}`;
+    const escapedAlias = escapeIdent(alias);
+    const outputAlias = escapeIdent(embed.alias);
+    const childTableSql = qualifiedIdentifierToSql(embed.child.target);
+    const joinCondition = renderMutationGraphJoinCondition(
+      'pgrst_source',
+      embed.child.target,
+      embed.relationship.cardinality,
+    );
+
+    if (embed.isToOne) {
+      columns.push(`row_to_json(${escapedAlias}.*)::jsonb AS ${outputAlias}`);
+      joins.push(
+        `${embed.joinType === 'inner' ? 'INNER' : 'LEFT'} JOIN LATERAL (` +
+          `SELECT ${childTableSql}.* FROM ${childTableSql} WHERE ${joinCondition}` +
+          `) AS ${escapedAlias} ON TRUE`,
+      );
+      return;
+    }
+
+    const innerSql =
+      `SELECT ${childTableSql}.* FROM ${childTableSql} WHERE ${joinCondition}`;
+    const aggSql =
+      `SELECT json_agg(${escapedAlias})::jsonb AS ${escapedAlias} ` +
+      `FROM (${innerSql}) AS ${escapedAlias}`;
+    const onCondition =
+      embed.joinType === 'inner' ? `${escapedAlias}.${escapedAlias} IS NOT NULL` : 'TRUE';
+    columns.push(
+      embed.joinType === 'inner'
+        ? `${escapedAlias}.${escapedAlias} AS ${outputAlias}`
+        : `COALESCE(${escapedAlias}.${escapedAlias}, '[]') AS ${outputAlias}`,
+    );
+    joins.push(
+      `${embed.joinType === 'inner' ? 'INNER' : 'LEFT'} JOIN LATERAL (` +
+        `${aggSql}) AS ${escapedAlias} ON ${onCondition}`,
+    );
+  });
+  return ok({ columns, joins });
+}
+
+function renderMutationGraphJoinCondition(
+  parentAlias: string,
+  child: InsertPlan['target'],
+  card: Cardinality,
+): string {
+  const parentSql = escapeIdent(parentAlias);
+  const childSql = qualifiedIdentifierToSql(child);
+  if (card.type === 'M2M') {
+    const junctionSql = qualifiedIdentifierToSql(card.junction.table);
+    const sourceConds = card.junction.sourceColumns.map(
+      ([parentCol, junctionCol]) =>
+        `${junctionSql}.${escapeIdent(junctionCol)} = ${parentSql}.${escapeIdent(parentCol)}`,
+    );
+    const targetConds = card.junction.targetColumns.map(
+      ([childCol, junctionCol]) =>
+        `${junctionSql}.${escapeIdent(junctionCol)} = ${childSql}.${escapeIdent(childCol)}`,
+    );
+    return `EXISTS (SELECT 1 FROM ${junctionSql} WHERE ${[...sourceConds, ...targetConds].join(' AND ')})`;
+  }
+  return card.columns
+    .map(
+      ([parentCol, childCol]) =>
+        `${childSql}.${escapeIdent(childCol)} = ${parentSql}.${escapeIdent(parentCol)}`,
+    )
+    .join(' AND ');
 }
 
 /**

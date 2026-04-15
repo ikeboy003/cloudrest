@@ -35,6 +35,7 @@ export interface QualifiedIdentifier {
  */
 export type Resource =
   | { readonly type: 'schema' }
+  | { readonly type: 'batch'; readonly transactional: boolean }
   | { readonly type: 'relation'; readonly name: string }
   | { readonly type: 'routine'; readonly name: string };
 
@@ -74,7 +75,8 @@ export type Action =
       readonly schema: string;
       readonly headersOnly: boolean;
     }
-  | { readonly type: 'schemaInfo'; readonly schema: string };
+  | { readonly type: 'schemaInfo'; readonly schema: string }
+  | { readonly type: 'batchDispatch'; readonly transactional: boolean };
 
 // ----- Parsed HTTP request shape ---------------------------------------
 
@@ -204,6 +206,16 @@ function resolveResource(
   segments: readonly string[],
 ): Result<Resource, CloudRestError> {
   if (segments.length === 0) return ok({ type: 'schema' });
+  if (segments.length === 1 && segments[0] === '_batch') {
+    return ok({ type: 'batch', transactional: false });
+  }
+  if (
+    segments.length === 2 &&
+    segments[0] === '_batch' &&
+    segments[1] === 'transaction'
+  ) {
+    return ok({ type: 'batch', transactional: true });
+  }
   if (segments.length === 1) {
     const name = segments[0]!;
     return ok({ type: 'relation', name });
@@ -260,6 +272,16 @@ function resolveAction(
           return ok({ type: 'schemaRead', schema, headersOnly: true });
         case 'OPTIONS':
           return ok({ type: 'schemaInfo', schema });
+        default:
+          return err(parseErrors.unsupportedMethod(method));
+      }
+    case 'batch':
+      switch (method) {
+        case 'POST':
+          return ok({
+            type: 'batchDispatch',
+            transactional: resource.transactional,
+          });
         default:
           return err(parseErrors.unsupportedMethod(method));
       }

@@ -12,6 +12,7 @@
 
 import type { QualifiedIdentifier } from '@/http/request';
 import type { Filter, LogicTree } from '@/parser/types';
+import type { EmbedNode } from './embed-plan';
 
 export type WrapShape = 'result' | 'cteOnly';
 
@@ -64,7 +65,7 @@ export interface InsertPlan {
   readonly wrap: WrapShape;
   /** Nested inserts for related tables. */
   readonly nestedInserts?: readonly NestedInsertChild[];
-  readonly graphReturnEmbeds?: readonly unknown[];
+  readonly graphReturnEmbeds?: readonly EmbedNode[];
 }
 
 export interface NestedInsertChild {

@@ -88,7 +88,7 @@ const GEO_TYPES = new Set(['geometry', 'geography']);
 export function pgTypeToTs(pgType: string, column?: Column): string {
   if (column !== undefined && column.enumValues.length > 0) {
     return column.enumValues
-      .map((v) => `'${v.replace(/'/g, "\\'")}'`)
+      .map((v) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`)
       .join(' | ');
   }
 

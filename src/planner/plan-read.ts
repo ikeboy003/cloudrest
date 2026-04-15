@@ -115,6 +115,9 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
   const rootOrder = collectRootOrder(input.parsed);
 
   // ----- Root filter / logic column validation ------------------------
+  const geoPlanning = planGeoFilters(table, input.parsed.filtersRoot);
+  if (!geoPlanning.ok) return geoPlanning;
+
   for (const filter of input.parsed.filtersRoot) {
     const check = validateFilterColumn(table, filter);
     if (!check.ok) return check;
@@ -260,9 +263,9 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
     // construction. Feeding the field-only list avoids double-
     // processing in the builder.
     select: rootFieldSelect,
-    filters: input.parsed.filtersRoot,
+    filters: geoPlanning.value.filters,
     logic: rootLogic,
-    order: rootOrder,
+    order: [...geoPlanning.value.order, ...rootOrder],
     range,
     having: input.parsed.having,
     count: input.preferences.preferCount ?? null,
@@ -273,6 +276,7 @@ export function planRead(input: PlanReadInput): Result<ReadPlan, CloudRestError>
     search,
     vector,
     embeds,
+    geoKinds: geoPlanning.value.geoKinds,
   });
 }
 
@@ -313,6 +317,81 @@ function collectNonRootOrder(
     if (entry[0].length > 0) out.push(entry);
   }
   return out;
+}
+
+interface GeoPlanningResult {
+  readonly filters: readonly Filter[];
+  readonly order: readonly OrderTerm[];
+  readonly geoKinds: ReadonlyMap<string, string> | undefined;
+}
+
+function planGeoFilters(
+  table: Table,
+  filters: readonly Filter[],
+): Result<GeoPlanningResult, CloudRestError> {
+  const geoKinds = collectGeoKinds(table);
+  const remainingFilters: Filter[] = [];
+  const distanceOrder: OrderTerm[] = [];
+
+  for (const filter of filters) {
+    const operation = filter.opExpr.operation;
+    if (operation.type !== 'geo') {
+      remainingFilters.push(filter);
+      continue;
+    }
+
+    const column = findColumn(table, filter.field.name);
+    const geoKind = column ? geoKindForColumn(column) : null;
+    if (geoKind === null) {
+      const detail =
+        operation.operator === 'dwithin'
+          ? 'geo.dwithin requires a PostGIS spatial column'
+          : `${filter.field.name} is not a geometry or geography column`;
+      return err(parseErrors.queryParam('geo', detail));
+    }
+
+    if (operation.operator === 'nearby') {
+      if (filter.opExpr.negated) {
+        return err(parseErrors.queryParam('geo.nearby', 'geo.nearby cannot be negated'));
+      }
+      distanceOrder.push({
+        field: filter.field,
+        direction: 'asc',
+        geoDistance: {
+          lat: operation.lat,
+          lng: operation.lng,
+        },
+      });
+      continue;
+    }
+
+    remainingFilters.push(filter);
+  }
+
+  return ok({
+    filters: remainingFilters,
+    order: distanceOrder,
+    geoKinds: geoKinds.size > 0 ? geoKinds : undefined,
+  });
+}
+
+function collectGeoKinds(table: Table): ReadonlyMap<string, string> {
+  const out = new Map<string, string>();
+  for (const column of table.columns.values()) {
+    const kind = geoKindForColumn(column);
+    if (kind !== null) out.set(column.name, kind);
+  }
+  return out;
+}
+
+function geoKindForColumn(column: { readonly type: string; readonly isGeo: boolean; readonly geoKind: string | null }): string | null {
+  if (column.geoKind === 'geometry' || column.geoKind === 'geography') {
+    return column.geoKind;
+  }
+  if (/^geometry(\(|$)/i.test(column.type)) return 'geometry';
+  if (/^geography(\(|$)/i.test(column.type)) return 'geography';
+  if (column.isGeo) return column.geoKind ?? column.type;
+  return null;
 }
 
 /**

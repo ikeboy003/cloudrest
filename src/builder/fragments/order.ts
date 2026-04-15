@@ -39,6 +39,24 @@ export function renderOrderTerm(
       ),
     );
   }
+  if (term.geoDistance !== undefined) {
+    const fieldResult = renderField(target, term.field, builder);
+    if (!fieldResult.ok) return fieldResult;
+    const lngParam = builder.addParam(term.geoDistance.lng);
+    const latParam = builder.addParam(term.geoDistance.lat);
+    const fieldSql =
+      `ST_Distance(${fieldResult.value}::geography, ` +
+      `ST_SetSRID(ST_MakePoint(${lngParam}, ${latParam}), 4326)::geography)`;
+    const dir =
+      term.direction === 'desc' ? ' DESC' : term.direction === 'asc' ? ' ASC' : '';
+    const nulls =
+      term.nullOrder === 'nullsfirst'
+        ? ' NULLS FIRST'
+        : term.nullOrder === 'nullslast'
+          ? ' NULLS LAST'
+          : '';
+    return ok(`${fieldSql}${dir}${nulls}`);
+  }
   let fieldSql: string;
   if (term.relation) {
     // A related order term must reference the LATERAL alias that the

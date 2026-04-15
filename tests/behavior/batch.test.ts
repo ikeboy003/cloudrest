@@ -113,7 +113,7 @@ describe('POST /_batch — validation', () => {
   });
 
   it('rejects a batch that exceeds MAX_BATCH_OPS', async () => {
-    const ops = Array.from({ length: 60 }, () => ({
+    const ops = Array.from({ length: 101 }, () => ({
       method: 'POST',
       path: '/books',
       body: { title: 'x' },

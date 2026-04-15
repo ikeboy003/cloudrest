@@ -9,9 +9,8 @@ export type OrderDirection = 'asc' | 'desc';
 export type NullOrder = 'nullsfirst' | 'nullslast';
 
 export interface GeoDistanceOrder {
-  readonly column: string;
   readonly lat: number;
-  readonly lon: number;
+  readonly lng: number;
 }
 
 export interface OrderTerm {

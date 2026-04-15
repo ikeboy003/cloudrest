@@ -21,6 +21,7 @@ import { createRequestTimer } from '@/executor/timer';
 import { authenticate } from '@/auth/authenticate';
 import { pickRoute } from './routes';
 import type { SchemaCache } from '@/schema/cache';
+import { dispatchBatch } from '@/batch/dispatch';
 
 export interface FetchDependencies {
   readonly config: AppConfig;
@@ -67,6 +68,21 @@ export async function handleFetch(
     auth: authResult.value,
     timer,
   };
+
+  if (parsed.value.action.type === 'batchDispatch') {
+    const batchResult = await dispatchBatch({
+      request,
+      context,
+      transactional: parsed.value.action.transactional,
+      inProcessDispatch: (subRequest) =>
+        handleFetch(subRequest, bindings, executionContext, deps),
+    });
+    stopTotal();
+    if (!batchResult.ok) {
+      return formatError(batchResult.error, deps.config);
+    }
+    return batchResult.value;
+  }
 
   // 4. Route.
   const handler = pickRoute(parsed.value.action);
